@@ -19,9 +19,13 @@ score: each run gets a hard-link copy of the built image (Docker's fresh contain
 a run writes (WRITABLE), with tests/ at /tests read-only
 and, in oracle, negative and baseline2 modes, the task directory at /patches read-only. The run executes ENTRYPOINT
 `bash /tests/test.sh` with KERNELBENCH_VERIFY_MODE and the mode's patch variable. After the run the copy is deleted
-and the built image is checked unchanged (path, type, size, mode, mtime of every file), or the command stops.
+and the built image is checked unchanged (path, type, size, mode, mtime of every file), or the command stops. Timing
+needs the node to itself: every GPU must be idle (no use, no memory held) before each run and again after it; a run
+that finds the node busy afterwards is renamed <mode>-<k>-busy and not counted, and the command stops.
 /logs/verifier of each run is kept in OUT/<mode>-<k>/, and OUT/<mode>.json lists the reward of every run. In
 candidate mode, --candidate DIR copies the editable files found in DIR into /app/repo first (the solver's working tree).
+Mode solve is the package's own "grade after landing" line and Φ-Bench's `--agent oracle` check: the task directory at
+/task read-only, `bash /task/solution/solve.sh && bash /tests/test.sh`, scored in the default candidate mode.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import statistics
@@ -41,7 +46,7 @@ BASE_IMAGE = 'vllm/vllm-openai-rocm:v0.32.0'
 PATCH_VARS = {'oracle': ('KERNELBENCH_ORACLE_PATCH', 'oracle.patch'),
               'negative': ('KERNELBENCH_NEGATIVE_PATCH', 'negative.patch'),
               'baseline2': ('KERNELBENCH_BASELINE2_PATCH', 'baseline2.patch')}
-MODES = ('candidate', 'noop', *PATCH_VARS)
+MODES = ('candidate', 'noop', *PATCH_VARS, 'solve')
 WRITABLE = ('.lock', 'etc/passwd', 'etc/group', 'etc/shadow', 'etc/apt/apt.conf.d/enroot', 'app', 'root', 'logs', 'opt/loop', 'opt/verifier-correctness-manifest.json')
 RC = 'cd "${PHIBENCH_WORKDIR:-/}" && exec "$@"\n'
 
@@ -193,6 +198,18 @@ def cmd_build(task_dir: Path, base: Path, base_sha: str, data: Path) -> int:
     return 0
 
 
+def busy_gpus(smi: str | None = None) -> list[str]:
+    """rocm-smi indices of GPUs that run something or hold memory (over 20 MiB): another job on the node."""
+    if smi is None:
+        smi = subprocess.run(['rocm-smi', '--showuse', '--showmeminfo', 'vram'], capture_output=True, text=True,
+                             check=True, timeout=60).stdout
+    use = dict(re.findall(r'GPU\[(\d+)\]\s*: GPU use \(%\): (\d+)', smi))
+    used = dict(re.findall(r'GPU\[(\d+)\]\s*: VRAM Total Used Memory \(B\): (\d+)', smi))
+    if not use or use.keys() != used.keys():
+        raise BuildError('rocm-smi printed no per-GPU use and memory; cannot tell whether the node is idle')
+    return sorted((g for g in use if int(use[g]) or int(used[g]) > 20 * 1024 * 1024), key=int)
+
+
 def listing(rootfs: Path) -> dict:
     """path -> (type, size, mode, mtime_ns) of every entry, without following links; for the unchanged-image check."""
     out = {}
@@ -242,8 +259,12 @@ def run_once(task_dir: Path, data: Path, meta: dict, mode: str, gpu: str, out: P
                 raise BuildError(f'--candidate {editable.name}: not a file of /app/repo')
             target.unlink()  # a hard link to the built image: replace it, never write through it
             shutil.copy(editable, target)
-    extra = {'KERNELBENCH_VERIFY_MODE': mode}
+    extra = {} if mode == 'solve' else {'KERNELBENCH_VERIFY_MODE': mode}
     mounts = [(str((task_dir / 'tests').resolve()), '/tests')]
+    verify = ['bash', '/tests/test.sh']
+    if mode == 'solve':
+        mounts.append((str(task_dir.resolve()), '/task'))
+        verify = ['bash', '-lc', 'bash /task/solution/solve.sh && bash /tests/test.sh']
     if mode in PATCH_VARS:
         var, patch = PATCH_VARS[mode]
         extra[var] = f'/patches/{patch}'
@@ -251,7 +272,7 @@ def run_once(task_dir: Path, data: Path, meta: dict, mode: str, gpu: str, out: P
     out.mkdir(parents=True)
     try:
         with (out / 'console.log').open('w') as log:
-            code = start(clone, data, [*meta['entrypoint'], 'bash', '/tests/test.sh'], data / f'{name}.rc',
+            code = start(clone, data, [*meta['entrypoint'], *verify], data / f'{name}.rc',
                          meta['workdir'], mounts, gpu, extra, log)
         verifier = rootfs / 'logs/verifier'
         if verifier.is_dir():
@@ -290,7 +311,13 @@ def cmd_score(task_dir: Path, data: Path, gpu: str, mode: str, repeat: int, out:
     runs = json.loads(path.read_text())['runs'] if path.exists() else []
     for _ in range(repeat):
         k = len(runs) + 1
+        if busy_gpus():
+            raise BuildError(f'GPUs {busy_gpus()} are busy: timing needs the node to itself; not starting')
         result = run_once(task_dir, data, meta, mode, gpu, out / f'{mode}-{k}', before, candidate)
+        if busy_gpus():
+            (out / f'{mode}-{k}').rename(out / f'{mode}-{k}-busy')
+            raise BuildError(f'another job started on the node during {mode}-{k}; renamed it {mode}-{k}-busy, '
+                             'not counted')
         runs.append(result)
         r = result['reward'] or {}
         print(f"{mode}-{k}: exit {result['exit']} speedup {r.get('speedup')} reward {r.get('reward')} "

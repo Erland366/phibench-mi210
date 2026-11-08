@@ -1,0 +1,142 @@
+{
+  "updated": "2026-11-08",
+  "about": "Checks before merging the MI210 rows into the Φ-Bench dataset that no script can decide. status: done | open | failed | not-applicable. blocking: the row is not ready while the item is not done. task null applies to every row. Read by phibench_premerge.py.",
+  "items": [
+    {
+      "task": null,
+      "check": "dataset owners approve",
+      "status": "open",
+      "blocking": true,
+      "note": "Clear the rows, their reference patches and the vendored code with Omar and the other Φ-Bench owners before merging. The Hugging Face copy is already public (the user's choice, 2026-11-07).",
+      "evidence": ""
+    },
+    {
+      "task": null,
+      "check": "license label",
+      "status": "open",
+      "blocking": true,
+      "note": "The draft dataset says apache-2.0, unconfirmed. Vendored code under environment/repo/ is from vLLM (Apache-2.0); the task text, grader and patches are ours.",
+      "evidence": "https://huggingface.co/datasets/Erland/phibench-mi210-rows"
+    },
+    {
+      "task": null,
+      "check": "image built with Docker itself",
+      "status": "open",
+      "blocking": true,
+      "note": "Upstream builds with docker buildx. Our images were built with Enroot by following each Dockerfile step (phibench_enroot.py); every Dockerfile check passed, but no one has run docker buildx on them (no docker group access on the nodes).",
+      "evidence": "references/experiment-log.md 2026-11-08"
+    },
+    {
+      "task": null,
+      "check": "upstream runner on AMD",
+      "status": "open",
+      "blocking": true,
+      "note": "scripts/run_task.py passes only NVIDIA GPUs (--gpus all); these tasks need --device /dev/kfd --device /dev/dri. The owners must accept a runner change or a documented manual path.",
+      "evidence": "each task's environment/Dockerfile header"
+    },
+    {
+      "task": null,
+      "check": "anchor inside the image",
+      "status": "open",
+      "blocking": false,
+      "note": "Our Dockerfile copies tests/verifier-correctness-manifest.json, with ref_speedup, into the image, as upstream's own example lh task does; upstream's README says the in-image copy omits the anchor. Ask the owners which they want.",
+      "evidence": ""
+    },
+    {
+      "task": null,
+      "check": "hardware labelling",
+      "status": "open",
+      "blocking": false,
+      "note": "Upstream anchors are calibrated on NVIDIA H20; ours on AMD MI210. With no hardware column, MI210 is stated in the summary, instruction, task.toml and caveat. The owners decide whether that is enough.",
+      "evidence": ""
+    },
+    {
+      "task": null,
+      "check": "Hugging Face copy keeps executable bits",
+      "status": "open",
+      "blocking": true,
+      "note": "The upload API stored every file 100644; upstream stores solve.sh, pre_artifacts.sh, tests/test.sh and environment/runtime/*.sh 100755, and verify_package.py fails on a download. Re-upload with git push.",
+      "evidence": "phibench_premerge.py on a snapshot of Erland/phibench-mi210-rows"
+    },
+    {
+      "task": "mi210-jais3-moe-m1024",
+      "check": "no-insight table search",
+      "status": "failed",
+      "blocking": true,
+      "note": "Too easy: the reference is an exact copy of the existing 8192 entry; the search's finalist scored 1.2516 with the verifier, above the anchor 1.249117. The user kept the row for now (2026-11-08); merging it needs a decision.",
+      "evidence": "/data/erland/results/phibench-search/m1024, verify-m1024"
+    },
+    {
+      "task": "mi210-jais3-moe-m1024",
+      "check": "real solver run",
+      "status": "open",
+      "blocking": false,
+      "note": "No model has been run on the task.",
+      "evidence": ""
+    },
+    {
+      "task": "mi210-jais3-moe-m256",
+      "check": "no-insight table search",
+      "status": "done",
+      "blocking": true,
+      "note": "Survived: 96 tries, nothing above 1.1x on its row; the finalist scored 0.998 with the verifier.",
+      "evidence": "/data/erland/results/phibench-search/m256, verify-m256"
+    },
+    {
+      "task": "mi210-jais3-moe-m256",
+      "check": "real solver run",
+      "status": "open",
+      "blocking": false,
+      "note": "No model has been run on the task; the search only rules out copy-and-random table edits.",
+      "evidence": ""
+    },
+    {
+      "task": "mi210-jais3-routed-moe-w8a16",
+      "check": "no-insight search",
+      "status": "open",
+      "blocking": false,
+      "note": "Not run: the one-entry search does not apply to a whole-layer task. Its reference changes kernel code as well as tables, and the table-only piece of the same GEAK result reached only 1.02x.",
+      "evidence": "references/experiment-log.md 2026-11-07 (five pieces)"
+    },
+    {
+      "task": "mi210-jais3-routed-moe-w8a16",
+      "check": "real solver run",
+      "status": "open",
+      "blocking": false,
+      "note": "No model has been run on the task.",
+      "evidence": ""
+    },
+    {
+      "task": "mi210-jais3-moe-m256",
+      "check": "oracle agent (solution/solve.sh) self-check",
+      "status": "open",
+      "blocking": true,
+      "note": "Φ-Bench's --agent oracle path: solve.sh lands the reference in the working tree and candidate scoring should land on the anchor. The only runs (2026-11-08 12:56-13:11) shared the node with other jobs and are invalid; rerun on an idle node.",
+      "evidence": "/data/erland/results/phibench-calibration/invalid-shared-node-20261108"
+    },
+    {
+      "task": "mi210-jais3-moe-m1024",
+      "check": "oracle agent (solution/solve.sh) self-check",
+      "status": "open",
+      "blocking": true,
+      "note": "Φ-Bench's --agent oracle path: solve.sh lands the reference in the working tree and candidate scoring should land on the anchor. The only runs (2026-11-08 12:56-13:11) shared the node with other jobs and are invalid; rerun on an idle node.",
+      "evidence": "/data/erland/results/phibench-calibration/invalid-shared-node-20261108"
+    },
+    {
+      "task": "mi210-jais3-routed-moe-w8a16",
+      "check": "oracle agent (solution/solve.sh) self-check",
+      "status": "open",
+      "blocking": true,
+      "note": "Φ-Bench's --agent oracle path: solve.sh lands the reference in the working tree and candidate scoring should land on the anchor. The only runs (2026-11-08 12:56-13:11) shared the node with other jobs and are invalid; rerun on an idle node.",
+      "evidence": "/data/erland/results/phibench-calibration/invalid-shared-node-20261108"
+    },
+    {
+      "task": "mi210-jais3-routed-moe-w8a16",
+      "check": "calibration attempt 2026-11-08",
+      "status": "failed",
+      "blocking": false,
+      "note": "All 9 runs (12:21-13:01) shared node 303 with Screen servers started 10:22 by another session; the 1.137155 median is not used. Recalibrate on an idle node; the automatic calibrated check stays FAIL until then.",
+      "evidence": "/data/erland/results/phibench-calibration/invalid-shared-node-20261108/WHY.md"
+    }
+  ]
+}

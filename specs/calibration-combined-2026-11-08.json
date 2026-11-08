@@ -1,0 +1,19 @@
+{
+  "frozen_on": "2026-11-08, before any verifier run of this image",
+  "tasks": ["mi210-jais3-routed-moe-w8a16"],
+  "package": "rebuilt 2026-11-08 with the current phibench_row.py; it differs from the published package only in tests/grade.py, tests/grade_config.json (target_rows null: the same whole-layer weighted sum), the private loop copies of those two files, and the caveat's no-change wording",
+  "where": "node 303, HIP device 0, one run at a time, nothing else on the node; image built by phibench_enroot.py from the package's own Dockerfile",
+  "order": ["noop x1", "negative x1", "oracle x5", "baseline2 x1", "solve x1"],
+  "gates": {
+    "noop": "reward 0 and no correctness failure",
+    "negative": "reward 0 with correctness_failed among the hard fails",
+    "oracle": "every run without a hard fail; anchor = median speedup of the 5"
+  },
+  "informational": {
+    "baseline2": "the second start (the GEAK task's stacked starting files): reported, no pass mark (upstream gives none)",
+    "solve": "Φ-Bench's --agent oracle check: solution/solve.sh lands the reference in the working tree, scored in candidate mode; reported against the 5 oracle runs, no pass mark"
+  },
+  "keep_row_only_if": "the anchor is at least 1.1, the paper's minimum; otherwise the row is reported as not qualifying and its package is not changed",
+  "also": "one solve run each for mi210-jais3-moe-m256 and mi210-jais3-moe-m1024 (informational, same meaning), after the combined row",
+  "stop_on": ["a gate failing", "the built image changing during a run", "an unexpected execution failure"]
+}

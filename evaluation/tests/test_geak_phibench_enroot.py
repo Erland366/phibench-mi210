@@ -41,3 +41,17 @@ def test_copies_come_first_nearest_key_first_with_the_arms_interleaved():
 def test_random_entries_draw_each_field_from_that_table_only():
     out = ts.candidates(TABLES, 256, ['dec'], random.Random(1), 5)
     assert all(c['entry'] == {'M': 8, 'g': {'N': 64}} for c in out)
+
+
+SMI = ('GPU[0]          : GPU use (%): 0\nGPU[1]          : GPU use (%): 100\nGPU[2]          : GPU use (%): 0\n'
+       'GPU[0]          : VRAM Total Used Memory (B): 13090816\nGPU[1]          : VRAM Total Used Memory (B): 5971019366\n'
+       'GPU[2]          : VRAM Total Used Memory (B): 59710193664\n')
+
+
+def test_a_gpu_in_use_or_holding_memory_is_busy():
+    assert pe.busy_gpus(SMI) == ['1', '2']
+
+
+def test_unreadable_rocm_smi_output_is_refused():
+    with pytest.raises(pe.BuildError):
+        pe.busy_gpus('no gpus here')

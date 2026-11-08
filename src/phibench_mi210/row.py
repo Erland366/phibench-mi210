@@ -480,6 +480,7 @@ def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bo
         runtime.mkdir(parents=True)
         for name in ('entrypoint.sh', 'timer.sh'):
             shutil.copyfile(VENDORED / name, runtime / name)
+            (runtime / name).chmod(0o755)  # stored executable, as upstream stores environment/runtime/*.sh
         write(runtime / 'run_dev_bench.sh', '#!/usr/bin/env bash\nset -euo pipefail\n'
               'KERNELBENCH_VERIFY_MODE="${KERNELBENCH_VERIFY_MODE:-candidate}" bash /tests/test.sh\n', 0o755)
 
