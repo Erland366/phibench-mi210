@@ -1,0 +1,28 @@
+{
+  "task": "jais3-moe-w8a16-v032-v2",
+  "frozen_on": "2026-11-07, after the first single-row run, with the slower-row rule narrowed by the user; before this rerun was timed",
+  "min_target_speedup": 1.1,
+  "rule": "Correctness PASS, rules kept, control identical; target score at least 1.1 and above 1 + its noise band; the target row is not slower than its start. Slower rows the patch does not change are reported and do not fail the piece.",
+  "target_rows_rule": "The one row whose table entry the patch changes. Chosen after seeing earlier results; the rule change was also made after seeing them, which is why this rerun is the evidence.",
+  "pieces": [
+    {
+      "id": "e1-m1024-tiles",
+      "what": "Replace the 1024 entry of the served tile table; served code unchanged",
+      "start": "served",
+      "patch": "single-rows-patches/e1-m1024-tiles.patch",
+      "target_rows": [
+        "m1024"
+      ]
+    },
+    {
+      "id": "e2-m256-decode",
+      "what": "Add a 256 entry to the served decode table, which sends 129-256 tokens down the decode path; served code unchanged",
+      "start": "served",
+      "patch": "single-rows-patches/e2-m256-decode.patch",
+      "target_rows": [
+        "m256"
+      ]
+    }
+  ],
+  "slower_rows_scope": "target"
+}

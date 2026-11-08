@@ -1,0 +1,27 @@
+# ref_speedup hardware and environment caveat
+
+`ref_speedup.txt` holds **@@REF@@**, a constant read at scoring time; the reference is not re-run.
+
+    reward = min(1.0, ln(speedup/ref_speedup)/ln(ref_speedup)) if speedup > ref_speedup else 0.0
+
+## Calibration conditions
+
+- Hardware: **AMD Instinct MI210** (gfx90a), one GPU. Scores on any other GPU are refused by `grade.py identity`.
+- Runtime: @@RUNTIME@@.
+- Status: **@@CALIBRATION_STATUS@@**. @@CALIBRATION_NOTE@@
+
+## Calibrate again
+
+The anchor must be the median of at least 5 runs of this package's own verifier:
+
+```bash
+docker run --rm --device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined \
+  -v "$PWD/tests:/tests:ro" -v "$PWD:/patches:ro" \
+  -e KERNELBENCH_VERIFY_MODE=oracle -e KERNELBENCH_ORACLE_PATCH=/patches/oracle.patch \
+  @@IMAGE@@ bash /tests/test.sh
+# read speedup from /logs/verifier/reward.json; write the median to tests/ref_speedup.txt
+```
+
+Self-checks: `KERNELBENCH_VERIFY_MODE=noop` must score 0 with `no_speedup`, and
+`KERNELBENCH_VERIFY_MODE=negative KERNELBENCH_NEGATIVE_PATCH=/patches/negative.patch` must score 0 with
+`correctness_failed`.

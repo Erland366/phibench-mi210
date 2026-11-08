@@ -1,0 +1,45 @@
+{
+  "task_dir": "mi210-jais3-routed-moe-w8a16",
+  "bench": "lh",
+  "infra_name": "fused_moe_w8a16_routed",
+  "title": "Optimize a routed block-FP8 Mixture-of-Experts layer on AMD MI210",
+  "summary": "This is the routed-expert computation of one Mixture-of-Experts layer on one tensor-parallel rank of a vLLM server on AMD Instinct MI210, for a block-quantized FP8 model with BF16 activations. The implementation in moe_w8a16.py and its two tile tables is what the server runs today: already tuned, correct, and hard to improve. You must make the whole layer call faster (token sort, the two expert matmuls, SiLU-and-mul and the top-k sum) over token counts from 1 to 8192, with decode counts carrying most of the weight, replaying routing recorded on a real server. Inputs are the hidden states, the FP8 weights with their block scales, and the top-k expert ids and weights; the output is this rank's partial sum. Metric: continuous performance score after a hard correctness gate (error within 1.02x of the baseline's, deterministic, no compilation during inference), on a logarithmic curve relative to the oracle anchor, calibrated on MI210, not comparable with H20 anchors.",
+  "agent_timeout_sec": 14400,
+  "cpus": 8,
+  "memory_mb": 49152,
+  "gpus": 1,
+  "max_submissions": 16,
+  "runner": "scripts/task_runner.py",
+  "runner_docstring": "Frozen runner (do NOT modify): python3 scripts/task_runner.py compile | correctness | performance\n\nOne routed-expert MoE layer on one TP rank of MI210: 100 experts, all local, top-8, hidden 2560, expert intermediate 384 per rank, block-FP8 (128x128) e4m3fn weights, BF16 activations. baseline_* is the frozen baseline: every correctness tolerance is anchored to it. See /app/instruction.md for the rules.\n",
+  "baseline_of": {
+    "moe_w8a16.py": "baseline_moe_w8a16.py",
+    "configs.json": "baseline_configs.json",
+    "dec_configs.json": "baseline_dec_configs.json"
+  },
+  "frozen_files": ["baseline_moe_w8a16.py", "baseline_configs.json", "baseline_dec_configs.json", "real_routing.json"],
+  "scrub": [
+    ["the kernel GEAK optimizes", "the kernel to optimize"],
+    ["a few round-2/3 table tiles", "a few table tiles"],
+    ["/data/erland/results/k2-mi210/", "recording-run/"]
+  ],
+  "banned_tokens": ["torch.matmul", "torch.mm(", "torch.bmm", "F.linear", "torch.einsum", "torch.ops.aten"],
+  "correctness_seeds": [11, 12],
+  "dev_correctness_seeds": [0, 1, 2],
+  "abba_blocks": 3,
+  "dev_abba_blocks": 1,
+  "runtime": {
+    "base_image": "vllm/vllm-openai-rocm:v0.32.0",
+    "torch_prefix": "2.13.0",
+    "vllm_prefix": "0.32.0",
+    "arch": "gfx90a",
+    "description": "vllm/vllm-openai-rocm:v0.32.0 (vLLM 0.32.0+rocm723, torch 2.13.0, Triton 3.8.0, ROCm 7.2.3)"
+  },
+  "negative": [
+    {
+      "file": "moe_w8a16.py",
+      "find": "        accumulator = accumulator * moe_weight[:, None]\n",
+      "replace": "        accumulator = accumulator * 1.0  # router weight dropped: must fail correctness\n",
+      "why": "Drops the router weight on the served down GEMM path (rows m1 and m512 up), which changes the result."
+    }
+  ]
+}

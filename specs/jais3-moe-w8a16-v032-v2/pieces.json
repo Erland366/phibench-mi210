@@ -1,0 +1,44 @@
+{
+  "task": "jais3-moe-w8a16-v032-v2",
+  "frozen_on": "2026-11-07, before any piece was timed",
+  "min_target_speedup": 1.1,
+  "rule": "A piece qualifies when the Round check finds correctness PASS, rules kept and the control identical; the target score (sum of weight x time over its target rows, against its start) is at least 1.1 and above 1 + its noise band; and no row of the 14 is slower than its start.",
+  "target_rows_rule": "The rows whose code path or table entry the piece changes, read from the patch and the two tile tables, not from timings.",
+  "pieces": [
+    {
+      "id": "p1-silu-fused-gateup",
+      "what": "Merge SiLU-and-mul into the gate/up multiply on the served path, and replace the top-k sum",
+      "start": "served",
+      "patch": "jais3-moe-v032-01/exp/team_task_20261027_073222_3848877_17051/task/round_1/engineer_0/best_patch.diff",
+      "target_rows": ["m1", "m256", "m512", "m1024", "m2048", "m4096", "m8192"]
+    },
+    {
+      "id": "p2-col-loop-down",
+      "what": "Down multiply reuses loaded data across N tiles (COL_LOOP), with retuned large-batch tiles",
+      "start": "served",
+      "patch": "jais3-moe-v032-01/exp/team_task_20261027_073222_3848877_17051/task/round_1/engineer_1/best_patch.diff",
+      "target_rows": ["m256", "m512", "m1024", "m2048", "m4096", "m8192"]
+    },
+    {
+      "id": "p3-decode-down",
+      "what": "Transposed decode down multiply, one pipeline stage on small rows, and 256 tokens on the decode path",
+      "start": "served",
+      "patch": "jais3-moe-v032-01/exp/team_task_20261027_073222_3848877_17051/task/round_2/engineer_0/best_patch.diff",
+      "target_rows": ["m2", "m4", "m8", "m16", "m32", "m64", "m128", "m256"]
+    },
+    {
+      "id": "p4-prefill-tiles",
+      "what": "Retune the large-batch tile table (config only)",
+      "start": "stacked",
+      "patch": "jais3-moe-v2-v032-01/exp/team_task_20261029_084223_200321_27888/task/round_1/engineer_0/best_patch.diff",
+      "target_rows": ["m512", "m1024", "m2048", "m4096", "m8192"]
+    },
+    {
+      "id": "p5-m512-decode-wide",
+      "what": "Send 512 tokens down the decode path, and one wide load in the decode down multiply",
+      "start": "stacked",
+      "patch": "jais3-moe-v2-v032-01/exp/team_task_20261029_084223_200321_27888/task/round_1/engineer_1/best_patch.diff",
+      "target_rows": ["m64", "m128", "m256", "m512"]
+    }
+  ]
+}

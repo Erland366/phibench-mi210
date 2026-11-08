@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+# @@TASK_ID@@: self-contained task image, built from public sources only.
+#   Needs 1 AMD Instinct MI210 to RUN (the anchor is calibrated on it); no GPU to BUILD.
+#   Build:  docker buildx build --load -f environment/Dockerfile -t @@IMAGE@@ .
+#   Run:    docker run --rm --device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined -it @@IMAGE@@
+#   Score:  docker run --rm --device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined \
+#             -v "$PWD/tests:/tests:ro" @@IMAGE@@ bash /tests/test.sh
+FROM @@BASE_IMAGE@@
+
+RUN command -v git >/dev/null || (apt-get update && apt-get install -y --no-install-recommends git)
+
+RUN mkdir -p /app/repo /app/.timer /app/workspace /logs/verifier /logs/agent /logs/artifacts
+COPY environment/repo/ /app/repo/
+COPY instruction.md /app/instruction.md
+
+# The baseline commit: the diff base of the scope gate and of the baseline timing.
+RUN git config --global user.email "reviewer@fai-bench.local" \
+ && git config --global user.name "fai-bench" \
+ && git config --global init.defaultBranch main \
+ && git config --global --add safe.directory /app/repo \
+ && cd /app/repo \
+ && git init -q \
+ && git config core.fileMode false \
+ && printf '__pycache__/\n*.pyc\n' >> .gitignore \
+ && git add -A \
+ && git commit -qm "baseline (graded starting point)" \
+ && rm -rf .git/logs \
+ && test "$(git rev-list --count HEAD)" = "1" \
+ && test -z "$(git status --porcelain)"
+
+COPY environment/runtime/entrypoint.sh /app/entrypoint.sh
+COPY environment/runtime/timer.sh /app/timer.sh
+COPY environment/runtime/run_dev_bench.sh /app/workspace/run_dev_bench.sh
+COPY environment/loop/ /opt/loop/
+RUN chmod 0755 /app/entrypoint.sh /app/timer.sh /app/workspace/run_dev_bench.sh /opt/loop/submit.sh \
+ && chown -R root:root /app/entrypoint.sh /app/timer.sh /opt/loop \
+ && chmod 0700 /opt/loop/score_engine.sh /opt/loop/sanitize_feedback.py \
+ && chmod -R go-rwx /opt/loop/private \
+ && test -f /opt/loop/private/manifest.json \
+ && test -f /opt/loop/private/tests/test.sh
+
+COPY tests/verifier-correctness-manifest.json /opt/verifier-correctness-manifest.json
+
+# No reference implementation in any layer, no /tests, and the scope files are still the baseline.
+RUN set -eu; \
+    hits="$(find / -xdev -type f \( -name 'oracle*.patch' -o -name 'negative*.patch' -o -name 'baseline2.patch' \) 2>/dev/null | head -10)"; \
+    test -z "$hits"; \
+    test ! -e /tests; \
+    cd /app/repo; \
+    printf '%s\n' @@SCOPE_SHA_LINES@@ | sha256sum -c -
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1
+WORKDIR /app/repo
+
+# The runtime the anchor was calibrated on: fail the build, not the score.
+RUN python3 -c "from importlib.metadata import version as v; t, l = v('torch'), v('vllm'); print(t, l); assert t.startswith('@@TORCH_PREFIX@@') and l.startswith('@@VLLM_PREFIX@@'), (t, l)"
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["tail","-f","/dev/null"]
