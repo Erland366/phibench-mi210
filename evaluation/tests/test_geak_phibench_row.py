@@ -214,3 +214,56 @@ def test_rebuild_needs_force_and_replaces_the_row(tmp_path):
         pr.build(**case)
     pr.build(**case, force=True)
     assert len((case['out'] / 'task_catalog.jsonl').read_text().splitlines()) == 1
+
+
+def _reward(mode, speedup, hard=(), corr=1.0):
+    reward = 0.0 if hard or speedup <= 1.2 else 0.5
+    return {'mode': mode, 'speedup': speedup, 'reward': reward, 'hard_fail_reasons': list(hard),
+            'correctness_frac': corr}
+
+
+def _calibration(tmp_path, oracle, noop=None, negative=None):
+    import json as _json
+    runs = {'oracle': oracle, 'noop': noop or [_reward('noop', 1.001)],
+            'negative': negative or [_reward('negative', 0, ['correctness_failed'], 0.5)]}
+    for mode, rewards in runs.items():
+        (tmp_path / f'{mode}.json').write_text(_json.dumps({'runs': [{'reward': r} for r in rewards]}))
+    return tmp_path
+
+
+def test_calibration_anchor_is_the_median_of_the_oracle_runs(tmp_path):
+    cal = pr.check_calibration(_calibration(tmp_path, [_reward('oracle', x) for x in (1.20, 1.25, 1.22, 1.30, 1.21)]))
+    assert cal['anchor'] == 1.22
+
+
+@pytest.mark.parametrize('case', ['four_runs', 'oracle_hard_fail', 'wrong_mode', 'noop_scores', 'negative_passes',
+                                  'under_minimum'])
+def test_calibration_refuses_what_the_frozen_rules_refuse(tmp_path, case):
+    oracle = [_reward('oracle', 1.2) for _ in range(5)]
+    noop = negative = None
+    if case == 'four_runs':
+        oracle = oracle[:4]
+    elif case == 'oracle_hard_fail':
+        oracle[2] = _reward('oracle', 1.2, ['timing_failed'])
+    elif case == 'wrong_mode':
+        oracle[0] = _reward('candidate', 1.2)
+    elif case == 'noop_scores':
+        noop = [_reward('noop', 1.3)]
+    elif case == 'negative_passes':
+        negative = [_reward('negative', 1.0)]
+    elif case == 'under_minimum':
+        oracle = [_reward('oracle', 1.05) for _ in range(5)]
+    with pytest.raises(pr.Refused):
+        pr.check_calibration(_calibration(tmp_path, oracle, noop, negative))
+
+
+def test_calibration_holds_only_for_the_package_it_ran_on(tmp_path):
+    new, old = tmp_path / 'new', tmp_path / 'old'
+    for root, grade in ((new, 'a'), (old, 'a')):
+        (root / 'tests').mkdir(parents=True)
+        (root / 'tests/grade.py').write_text(grade)
+        (root / 'tests/ref_speedup.txt').write_text(str(len(str(root))))
+    pr.same_package(new, old)  # only the anchor file differs
+    (old / 'tests/grade.py').write_text('b')
+    with pytest.raises(pr.Refused):
+        pr.same_package(new, old)

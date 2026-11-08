@@ -1,0 +1,12 @@
+{
+  "frozen_on": "2026-11-08, before any search trial ran",
+  "question": "Does a searcher with no kernel insight, changing only the m1024 tile-table entry, beat the reference of task mi210-jais3-moe-m1024?",
+  "target_tokens": 1024,
+  "arms": ["served", "dec"],
+  "seed": 0,
+  "max_trials": 96,
+  "max_minutes": 60,
+  "where": "node 305, one GPU, alone on that GPU; ranking only",
+  "finalist_check": "the finalist's three files through the package's own verifier (candidate mode, 1 run) on node 303 GPU 0 after calibration, scored against the calibrated anchor",
+  "verdict": "too easy if the finalist's verifier reward is above 0 (speedup above the anchor); otherwise it survives this search at this budget, which says nothing about longer or smarter searches"
+}

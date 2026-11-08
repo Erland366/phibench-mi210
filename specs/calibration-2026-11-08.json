@@ -1,0 +1,13 @@
+{
+  "frozen_on": "2026-11-08, before any verifier run of these images",
+  "tasks": ["mi210-jais3-moe-m256", "mi210-jais3-moe-m1024"],
+  "where": "node 303, HIP device 0, one run at a time, nothing else on the node; images built by phibench_enroot.py from the packages' own Dockerfiles",
+  "order_per_task": ["noop x1", "negative x1", "oracle x5"],
+  "self_checks": {
+    "noop": "reward 0 and no correctness failure",
+    "negative": "reward 0 with correctness_failed among the hard fails"
+  },
+  "anchor": "median speedup of the 5 oracle runs; it replaces ref_speedup in the package and the catalog",
+  "keep_row_only_if": "the anchor is at least 1.1, the paper's minimum",
+  "stop_on": ["a self-check failing", "an oracle run with any hard fail", "the built image changing during a run", "an unexpected execution failure"]
+}

@@ -23,6 +23,7 @@ import io
 import json
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -310,7 +311,56 @@ def write_tests(root: Path, spec: dict, scope: list[str], grader: dict[str, byte
         write(root / 'verifier-correctness-manifest.json', manifest)
 
 
-def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bool = False) -> dict:
+MIN_CALIBRATION_RUNS = 5  # arXiv 2609.10226: the anchor is the median of at least 5 runs
+ANCHOR_FILES = ('task.toml', 'tests/ref_speedup.txt', 'tests/ref_speedup.caveat.md',
+                'tests/verifier-correctness-manifest.json')  # the only files the anchor changes
+
+
+def check_calibration(cal_dir: Path) -> dict:
+    """The package verifier's own runs (phibench_enroot.py score: oracle.json, noop.json, negative.json): at least 5
+    oracle runs with no hard fail, a no-change run scoring 0 without failing correctness, and a negative run failing
+    correctness. Returns the anchor (median oracle speedup) and the evidence."""
+    runs = {}
+    for mode in ('oracle', 'noop', 'negative'):
+        path = cal_dir / f'{mode}.json'
+        if not path.is_file():
+            raise Refused(f'calibration: {path} missing')
+        runs[mode] = [r['reward'] for r in load_json(path)['runs']]
+        if not runs[mode] or any(r is None or r['mode'] != mode for r in runs[mode]):
+            raise Refused(f'calibration: a {mode} run has no reward, or the verifier ran another mode')
+    oracle = runs['oracle']
+    if len(oracle) < MIN_CALIBRATION_RUNS:
+        raise Refused(f'calibration: {len(oracle)} oracle runs, at least {MIN_CALIBRATION_RUNS} needed')
+    failed = [r['hard_fail_reasons'] for r in oracle if r['hard_fail_reasons'] or r['correctness_frac'] < 1]
+    if failed:
+        raise Refused(f'calibration: oracle runs failed: {failed}')
+    if any(r['reward'] != 0 or 'correctness_failed' in r['hard_fail_reasons'] for r in runs['noop']):
+        raise Refused('calibration: the no-change self-check scored above 0 or failed correctness')
+    if any(r['reward'] != 0 or 'correctness_failed' not in r['hard_fail_reasons'] for r in runs['negative']):
+        raise Refused('calibration: the negative self-check did not fail correctness')
+    speedups = [r['speedup'] for r in oracle]
+    anchor = round(statistics.median(speedups), 6)
+    if anchor < MIN_REF_SPEEDUP:
+        raise Refused(f'calibration: the calibrated anchor {anchor} is under the paper\'s {MIN_REF_SPEEDUP}x minimum')
+    return {'dir': str(cal_dir), 'anchor': anchor, 'oracle_speedups': speedups,
+            'noop_speedups': [r['speedup'] for r in runs['noop']],
+            'negative_hard_fails': [r['hard_fail_reasons'] for r in runs['negative']]}
+
+
+def same_package(new: Path, calibrated: Path) -> None:
+    """Calibration holds only for the package it ran on: every file but the anchor's must be unchanged."""
+    if not calibrated.is_dir():
+        raise Refused(f'calibration: {calibrated} does not exist, so nothing was calibrated')
+    files = lambda root: {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()
+                          and str(p.relative_to(root)) not in ANCHOR_FILES}
+    a, b = files(new), files(calibrated)
+    differ = sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+    if differ:
+        raise Refused(f'calibration: the package differs from the calibrated one in {differ[:5]}')
+
+
+def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bool = False,
+          calibration: Path | None = None) -> dict:
     spec = load_json(spec_dir / 'spec.json')
     verdict = load_json(round_check / 'verdict.json')
     outcome = load_json(run_dir / 'outcome.json')
@@ -321,6 +371,9 @@ def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bo
     else:
         ref = round(check_evidence(verdict, outcome), 6)
     target_rows = piece_score['target_rows'] if piece_score else None
+    cal = check_calibration(calibration) if calibration else None
+    if cal:
+        ref = cal['anchor']
 
     prepare = load_json(round_check / 'prepare.json')
     scope = sorted(spec['baseline_of'])
@@ -389,13 +442,20 @@ def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bo
     calibration_note = ('The value is the Round check speedup of the reference, measured with graph replay on MI210 '
                         'by a different harness. It must be measured again with this package\'s own verifier before '
                         'any scored use.')
+    if cal:
+        calibration_note = (f'The value is the median of {len(cal["oracle_speedups"])} oracle-mode runs of this '
+                            f'package\'s own verifier on one MI210 ({", ".join(f"{x:.4f}" for x in cal["oracle_speedups"])}), '
+                            'in an image built from environment/Dockerfile with Enroot. Self-checks: no-change speedup '
+                            f'{", ".join(f"{x:.4f}" for x in cal["noop_speedups"])} with reward 0; the negative patch '
+                            'fails correctness with reward 0.')
+    status = 'calibrated' if cal else 'provisional'
     if target_rows:
         calibration_note += f' It covers only the scored rows: {", ".join(target_rows)}.'
     caveat = fill((TEMPLATES / 'ref_speedup.caveat.md.tmpl').read_text(),
                   {'REF': str(ref), 'RUNTIME': spec['runtime']['description'], 'IMAGE': image,
-                   'CALIBRATION_STATUS': 'provisional', 'CALIBRATION_NOTE': calibration_note})
+                   'CALIBRATION_STATUS': status, 'CALIBRATION_NOTE': calibration_note})
     manifest = json.dumps({'ref_speedup': ref, 'perf_metric': 'speedup', 'reward_kind': 'gated_oracle',
-                           'calibrated_on': 'AMD Instinct MI210', 'calibration_status': 'provisional'}, indent=2) + '\n'
+                           'calibrated_on': 'AMD Instinct MI210', 'calibration_status': status}, indent=2) + '\n'
     grader = {**frozen, spec['runner']: runner}
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -460,7 +520,7 @@ def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bo
         report = verify_package(package, spec['bench'], spec['task_dir'])
 
         provenance = {
-            'row': row, 'calibration_status': 'provisional',
+            'row': row, 'calibration_status': status, **({'calibration': cal} if cal else {}),
             'run': {'dir': str(run_dir), 'status': outcome.get('status'),
                     'missing_workflow_outputs': outcome.get('missing_workflow_outputs', []),
                     'seconds': outcome.get('seconds'), 'transcript_models': outcome.get('transcript_models'),
@@ -471,13 +531,16 @@ def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bo
             'candidate': {'dir': str(candidate_dir), 'sha256': {n: sha256(raw_candidate[n]) for n in scope}},
             'task_source': prepare['frozen_task'].get('path'),
             **({'piece': {'plan': spec['piece']['plan'], **piece_score}} if piece_score else {}),
-            'not_done': ['docker build', 'anchor calibration with this verifier (at least 5 runs on MI210)',
-                         'no-change self-check', 'negative self-check', 'oracle self-check',
-                         'run_task.py GPU passthrough (it only passes NVIDIA devices)'],
+            'not_done': (['docker build (the image was built with Enroot from the same Dockerfile)'] if cal else
+                         ['docker build', 'anchor calibration with this verifier (at least 5 runs on MI210)',
+                          'no-change self-check', 'negative self-check', 'oracle self-check'])
+                        + ['run_task.py GPU passthrough (it only passes NVIDIA devices)'],
             'verify_package': report,
         }
 
         target = out / 'tasks' / spec['bench'] / spec['task_dir']
+        if cal:
+            same_package(package, target)
         if target.exists():
             if not force:
                 raise Refused(f'{target} exists; pass --force to rebuild it')
@@ -537,14 +600,17 @@ def main() -> int:
     parser.add_argument('--round-check', type=Path, required=True, help='the independent Round check directory')
     parser.add_argument('--out', type=Path, required=True, help='output root, laid out like the dataset')
     parser.add_argument('--force', action='store_true', help='rebuild an existing package in --out')
+    parser.add_argument('--calibration', type=Path,
+                        help='directory of the package verifier runs (phibench_enroot.py score): sets the anchor')
     args = parser.parse_args()
     try:
-        result = build(args.spec, args.run_dir, args.round_check, args.out, args.force)
+        result = build(args.spec, args.run_dir, args.round_check, args.out, args.force, args.calibration)
     except Refused as refusal:
         print(f'REFUSED: {refusal}', file=sys.stderr)
         return 2
     print(json.dumps(result['row'], indent=2, ensure_ascii=False))
-    print(f'package: {result["package"]}\nrun status: {result["run_status"]}\nanchor: provisional (not yet calibrated)')
+    anchor = 'calibrated' if args.calibration else 'provisional (not yet calibrated)'
+    print(f'package: {result["package"]}\nrun status: {result["run_status"]}\nanchor: {anchor}')
     print(result['verify_package'])
     return 0
 

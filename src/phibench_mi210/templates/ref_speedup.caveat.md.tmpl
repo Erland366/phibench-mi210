@@ -22,6 +22,6 @@ docker run --rm --device /dev/kfd --device /dev/dri --security-opt seccomp=uncon
 # read speedup from /logs/verifier/reward.json; write the median to tests/ref_speedup.txt
 ```
 
-Self-checks: `KERNELBENCH_VERIFY_MODE=noop` must score 0 with `no_speedup`, and
+Self-checks: `KERNELBENCH_VERIFY_MODE=noop` must score 0 without failing correctness (its speedup is about 1.0), and
 `KERNELBENCH_VERIFY_MODE=negative KERNELBENCH_NEGATIVE_PATCH=/patches/negative.patch` must score 0 with
 `correctness_failed`.
