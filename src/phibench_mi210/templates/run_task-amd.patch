@@ -1,0 +1,93 @@
+--- a/scripts/run_task.py
++++ b/scripts/run_task.py
+@@ -160,6 +160,15 @@
+ DEFAULT_NVIDIA_LIB_DIR = "/usr/local/nvidia/lib64"
+ DEFAULT_NVIDIA_BIN_DIR = "/usr/local/nvidia/bin"
+ NVIDIA_CONTROL_DEVICES = ["/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"]
++# AMD (ROCm) GPUs: the kernel driver's compute device and the render nodes, plus the options ROCm's
++# container guide uses. A GPU subset is chosen with HIP_VISIBLE_DEVICES, not by device file.
++AMD_DEVICES = ["/dev/kfd", "/dev/dri"]
++AMD_DOCKER_OPTS = ["--security-opt", "seccomp=unconfined", "--group-add", "video"]
++
++
++def amd_gpu_type(name):
++    """True for an AMD GPU name as task.toml gpu_types writes it (MI210, MI300X, AMD Instinct ...)."""
++    return bool(re.match(r"(AMD\b|Instinct\b|MI\d)", str(name).strip(), re.I))
+ 
+ # --------------------------------------------------------------------------- agent adapters
+ # One dict entry per agent. Adding an agent = adding one entry.
+@@ -472,6 +481,8 @@
+         if gpus is None:
+             gpus = self.index.get("gpus")
+         self.gpus = int(gpus or 0)
++        self.gpu_types = [str(t) for t in (self._m("environment.gpu_types", "resources.gpu_types",
++                                                   default=[]) or [])]
+         self.build_timeout = float(self._m("environment.build_timeout_sec",
+                                            "verifier.environment.build_timeout_sec",
+                                            default=3600))
+@@ -796,10 +807,19 @@
+             rec["notes"].append("task wants a GPU but --gpu-passthrough none was requested")
+         return [], rec
+     mode = args.gpu_passthrough
++    wants_amd = bool(task.gpu_types) and all(amd_gpu_type(t) for t in task.gpu_types)
+     if mode == "auto":
+         has_toolkit = bool(shutil.which("nvidia-container-runtime")
+                            or shutil.which("nvidia-container-cli"))
+-        if has_toolkit:
++        if wants_amd or (not task.gpu_types and os.path.exists("/dev/kfd") and not has_toolkit
++                         and not os.path.exists("/dev/nvidiactl")):
++            mode = "amd"
++            if not os.path.exists("/dev/kfd") and not args.dry_run:
++                rec["mode"] = "none"
++                rec["notes"].append(f"the task declares AMD GPUs {task.gpu_types} but this host "
++                                    "has no /dev/kfd")
++                return [], rec
++        elif has_toolkit:
+             mode = "toolkit"
+         elif os.path.exists("/dev/nvidiactl"):
+             mode = "manual"
+@@ -813,6 +833,17 @@
+     rec["mode"] = mode
+     if mode == "toolkit":
+         return ["--gpus", "all"], rec
++    if mode == "amd":
++        flags = []
++        for d in AMD_DEVICES:
++            flags += ["--device", d]
++        rec["devices"] = list(AMD_DEVICES)
++        if args.gpu_devices:
++            rec["visible"] = [d for d in re.split(r'[,\s]+', args.gpu_devices) if d]
++            rec["notes"].append(f"amd: HIP_VISIBLE_DEVICES={','.join(rec['visible'])}")
++        if task.gpu_types and not wants_amd:
++            rec["notes"].append(f"amd passthrough for a task that declares {task.gpu_types}")
++        return flags + AMD_DOCKER_OPTS, rec
+     # manual: devices + the host's user-space driver, mounted at the SAME path it has on the host
+     if args.gpu_devices:
+         devs = [d if d.startswith("/dev/") else f"/dev/nvidia{d}"
+@@ -837,7 +868,9 @@
+ def gpu_env_flags(exec_, task, args, grec, image):
+     """LD_LIBRARY_PATH for manual passthrough -- but only when the image does not already carry
+     the driver directory (43 of the 44 GPU images do, so this is usually a no-op and the image's
+-    own value, which points at torch's bundled libs, is never clobbered)."""
++    own value, which points at torch's bundled libs, is never clobbered). AMD: the GPU subset."""
++    if grec.get("mode") == "amd":
++        return ["-e", f"HIP_VISIBLE_DEVICES={','.join(grec['visible'])}"] if grec.get("visible") else []
+     if grec.get("mode") != "manual" or not args.nvidia_lib_dir:
+         return []
+     have = image_env(exec_, image, "LD_LIBRARY_PATH") or task.image_ld_static
+@@ -1758,10 +1791,12 @@
+     g.add_argument("--memory-mb", type=int)
+     g.add_argument("--shm-size", help="default 2g for GPU tasks, docker's default otherwise")
+     g.add_argument("--gpu-passthrough", default="auto",
+-                   choices=["auto", "toolkit", "manual", "none"],
++                   choices=["auto", "toolkit", "manual", "amd", "none"],
+                    help="toolkit: --gpus all. manual: /dev/nvidia* devices plus the host driver "
+-                        "user-space (for hosts without nvidia-container-toolkit)")
+-    g.add_argument("--gpu-devices", help="e.g. 0,1 or /dev/nvidia0 (manual mode)")
++                        "user-space (for hosts without nvidia-container-toolkit). amd: /dev/kfd and "
++                        "/dev/dri (ROCm); auto picks it when task.toml gpu_types are AMD or the host "
++                        "has /dev/kfd and no NVIDIA driver")
++    g.add_argument("--gpu-devices", help="e.g. 0,1 or /dev/nvidia0 (manual mode); amd: HIP indices")
+     g.add_argument("--nvidia-lib-dir", default=DEFAULT_NVIDIA_LIB_DIR,
+                    help=f"manual mode driver user-space dir (default {DEFAULT_NVIDIA_LIB_DIR})")
+     g.add_argument("--nvidia-bin-dir", default=DEFAULT_NVIDIA_BIN_DIR,

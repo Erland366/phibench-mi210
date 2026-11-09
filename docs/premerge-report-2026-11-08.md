@@ -85,11 +85,16 @@ Screen numbers measured on 303 between 12:21 and 13:11 may have been slowed by t
 
 ## Open before a merge
 
-Blocking:
-1. Decide m1024 (too easy).
-2. Owners' approval (Omar and the other Φ-Bench owners) and the license label.
-3. Build each image once with `docker buildx` (only Enroot has been used; no docker group on the nodes).
-4. The upstream runner (`scripts/run_task.py`) passes only NVIDIA GPUs; the owners must accept a change or a manual path.
+Blocking, none of them doable on our nodes:
+1. Owners' approval (Omar and the other Φ-Bench owners) and the license label: deferred by the user (2026-11-09).
+2. One `docker buildx` build of each image, by whoever merges: our nodes have no Docker access, only Apptainer (which
+   cannot build from a Dockerfile). The images were built with Enroot from the same Dockerfiles.
+
+Decided 2026-11-09: keep m1024 (README marks it too easy); support AMD in the upstream runner. `scripts/run_task.py`
+now passes `/dev/kfd` and `/dev/dri` (ROCm options, GPU subset through `HIP_VISIBLE_DEVICES`) when a task's
+`gpu_types` are AMD, with NVIDIA behaviour unchanged; `scripts/run_task-amd.patch` is the change for upstream (applies
+to their revision 3bcefac). Checked with `--dry-run` and unit tests only, since Docker is not available here; the
+owners must accept it.
 
 Done since 2026-11-08: the combined row's calibration, the oracle-agent check on all three rows, and a `git push`
 upload that keeps executable bits.
@@ -101,7 +106,7 @@ column (upstream anchors are on NVIDIA H20).
 ## Evidence
 
 - Code: `evaluation/geak/phibench_row.py`, `phibench_pieces.py`, `phibench_enroot.py`, `phibench_table_search.py`,
-  `phibench_premerge.py`; tests in `evaluation/tests/test_geak_phibench_*.py`.
+  `phibench_premerge.py`, `phibench_templates/run_task.py` (AMD runner); tests in `evaluation/tests/test_geak_phibench_*.py`.
 - Calibration runs: `/data/erland/results/phibench-calibration/<task>/` (each run's `/logs/verifier`, `<mode>.json`).
 - Search: `/data/erland/results/phibench-search/` (trials, summaries, finalists, finalist verifier runs).
 - Earlier packages: `/data/erland/results/phibench-rows-provisional-20261108`, `phibench-rows-before-*`.

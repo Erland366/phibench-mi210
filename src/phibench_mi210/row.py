@@ -553,6 +553,10 @@ def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bo
     write_catalog(out, row, spec, scope, bool(baseline2))
     (out / 'scripts').mkdir(exist_ok=True)
     shutil.copyfile(VENDORED / 'verify_package.py', out / 'scripts' / 'verify_package.py')
+    # the dataset's runner with AMD passthrough (upstream's passes only NVIDIA GPUs), and the change for upstream
+    shutil.copyfile(TEMPLATES / 'run_task.py', out / 'scripts' / 'run_task.py')
+    (out / 'scripts' / 'run_task.py').chmod(0o755)
+    shutil.copyfile(TEMPLATES / 'run_task-amd.patch', out / 'scripts' / 'run_task-amd.patch')
     return {'row': row, 'package': str(target), 'verify_package': report, 'run_status': outcome.get('status')}
 
 
