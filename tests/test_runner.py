@@ -1,4 +1,4 @@
-"""CPU-only tests of the AMD passthrough added to Φ-Bench's scripts/run_task.py (phibench_templates/run_task.py)."""
+"""CPU-only tests of the AMD passthrough added to Φ-Bench's scripts/run_task.py (src/phibench_mi210/templates/run_task.py)."""
 import importlib.util
 import subprocess
 from pathlib import Path
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-TEMPLATES = Path(__file__).resolve().parents[1] / 'geak' / 'phibench_templates'
+TEMPLATES = Path(__file__).resolve().parents[1] / 'src' / 'phibench_mi210' / 'templates'
 
 
 def load(path):

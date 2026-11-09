@@ -1,7 +1,7 @@
 """CPU-only tests of the per-piece scoring rule."""
 import pytest
 
-from evaluation.geak import phibench_pieces as pp
+from phibench_mi210 import pieces as pp
 
 
 def row(weight, start, candidate, stacked=None, state='faster', stacked_state='faster'):
@@ -63,3 +63,9 @@ def test_a_gain_inside_the_noise_band_disqualifies():
     record['rounds_ms'] = {'A': [1.0] * 3, 'A2': [1.2] * 3}
     score = pp.score_piece(SERVED, verdict({'m1': record}), 1.1)
     assert not score['qualifies'] and 'noise band' in score['reasons'][0]
+
+
+def test_the_noise_band_is_the_round_checks_rule():
+    assert pp.noise_band([0.001] * 10) == 0.02  # the 2% floor
+    assert pp.noise_band([0.01] * 9 + [0.5]) == 0.02  # one outlier round of 10 does not set the band
+    assert pp.noise_band([0.03] * 8 + [0.04, 0.5]) == 0.04

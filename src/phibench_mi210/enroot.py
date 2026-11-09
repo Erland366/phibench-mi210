@@ -1,14 +1,14 @@
 """Build a Φ-Bench task image with Enroot (no Docker access needed) and run its verifier, fresh each time.
 
     # host, CPU: unpack the pinned base image and follow the task's environment/Dockerfile step by step
-    python -m evaluation.geak.phibench_enroot build --task-dir TASK --base BASE.sqsh --base-sha256 HEX --data DATA
+    python -m phibench_mi210.enroot build --task-dir TASK --base BASE.sqsh --base-sha256 HEX --data DATA
 
     # one MI210: the Dockerfile's "Score" command, in a throwaway copy of the built image per run
-    python -m evaluation.geak.phibench_enroot score --task-dir TASK --data DATA --gpu N --mode oracle --repeat 5 \
+    python -m phibench_mi210.enroot score --task-dir TASK --data DATA --gpu N --mode oracle --repeat 5 \
         --out OUT [--candidate DIR]
 
     # one MI210: any command in a throwaway copy of the built image, HOST directories mounted read-write
-    python -m evaluation.geak.phibench_enroot exec --task-dir TASK --data DATA --gpu N --mount HOST ... -- CMD...
+    python -m phibench_mi210.enroot exec --task-dir TASK --data DATA --gpu N --mount HOST ... -- CMD...
 
 build: FROM must name the pinned base, which is unpacked from BASE.sqsh after its SHA256 is checked. COPY copies from
 the task directory into the root filesystem on the host; RUN runs `/bin/sh -c` inside the container as root, with

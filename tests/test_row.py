@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from evaluation.geak import phibench_row as pr
+from phibench_mi210 import row as pr
 
 SUMMARY = 'A routed MoE layer on MI210. ' + 'x' * 700
 RUNNER = '"""Runner naming GEAK, to be replaced."""\nPIN = "@@PIN@@"\nprint("runner")\n'

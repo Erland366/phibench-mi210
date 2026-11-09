@@ -1,13 +1,13 @@
 """Turn a finished GEAK run into a Phi-Bench task package and one catalog row (CPU only).
 
-    python3 -m evaluation.geak.phibench_row \
-        --spec evaluation/geak/phibench_specs/<task> --run-dir RUN --round-check RUN.round-check --out OUT
+    python -m phibench_mi210.row \
+        --spec specs/<task> --run-dir RUN --round-check RUN.round-check --out OUT
 
 The independent Round check decides: it names the exact candidate files, and its measured speedup becomes the anchor
 (GEAK's own claim is never used). The row keeps the dataset's 8 columns; hardware lives in the package. The spec holds
 what cannot be generated: names, the summary and instruction (no solution hints) and a deliberately wrong edit.
 
-A spec with `piece` {plan, id} makes a row from one piece of a result (phibench_pieces.py): --round-check is that
+A spec with `piece` {plan, id} makes a row from one piece of a result (pieces.py): --round-check is that
 piece's work directory, the plan's frozen rule replaces the whole-layer test, the anchor is the score on the piece's
 target rows, and the grader times only those rows.
 
@@ -30,10 +30,10 @@ import tempfile
 import tokenize
 from pathlib import Path
 
-from evaluation.geak.phibench_pieces import score_piece
+from phibench_mi210.pieces import score_piece
 
 HERE = Path(__file__).resolve().parent
-TEMPLATES = HERE / 'phibench_templates'
+TEMPLATES = HERE / 'templates'
 VENDORED = TEMPLATES / 'vendored'
 
 COLUMNS = ('bench', 'task_dir', 'infra_name', 'reward_class', 'gpus', 'max_submissions', 'ref_speedup', 'summary')
@@ -317,7 +317,7 @@ ANCHOR_FILES = ('task.toml', 'tests/ref_speedup.txt', 'tests/ref_speedup.caveat.
 
 
 def check_calibration(cal_dir: Path) -> dict:
-    """The package verifier's own runs (phibench_enroot.py score: oracle.json, noop.json, negative.json): at least 5
+    """The package verifier's own runs (enroot.py score: oracle.json, noop.json, negative.json): at least 5
     oracle runs with no hard fail, a no-change run scoring 0 without failing correctness, and a negative run failing
     correctness. Returns the anchor (median oracle speedup) and the evidence."""
     runs = {}
@@ -606,7 +606,7 @@ def main() -> int:
     parser.add_argument('--out', type=Path, required=True, help='output root, laid out like the dataset')
     parser.add_argument('--force', action='store_true', help='rebuild an existing package in --out')
     parser.add_argument('--calibration', type=Path,
-                        help='directory of the package verifier runs (phibench_enroot.py score): sets the anchor')
+                        help='directory of the package verifier runs (enroot.py score): sets the anchor')
     args = parser.parse_args()
     try:
         result = build(args.spec, args.run_dir, args.round_check, args.out, args.force, args.calibration)

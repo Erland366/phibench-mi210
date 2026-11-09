@@ -1,6 +1,6 @@
 {
   "updated": "2026-11-09",
-  "about": "Checks before merging the MI210 rows into the Φ-Bench dataset that no script can decide. status: done | open | failed | not-applicable. blocking: the row is not ready while the item is not done. task null applies to every row. Read by phibench_premerge.py.",
+  "about": "Checks before merging the MI210 rows into the Φ-Bench dataset that no script can decide. status: done | open | failed | not-applicable. blocking: the row is not ready while the item is not done. task null applies to every row. Read by premerge.py.",
   "items": [
     {
       "task": null,
@@ -23,8 +23,8 @@
       "check": "image built with Docker itself",
       "status": "open",
       "blocking": true,
-      "note": "Upstream builds with docker buildx. Our nodes have no Docker access (the docker socket needs a group we are not in) and only Apptainer, which cannot build from a Dockerfile. The images were built with Enroot by following each Dockerfile step (phibench_enroot.py) and every Dockerfile check passed. A docker buildx build has to be done by whoever merges, on a machine with Docker (user, 2026-11-09).",
-      "evidence": "references/experiment-log.md 2026-11-08"
+      "note": "Upstream builds with docker buildx. Our nodes have no Docker access (the docker socket needs a group we are not in) and only Apptainer, which cannot build from a Dockerfile. The images were built with Enroot by following each Dockerfile step (enroot.py) and every Dockerfile check passed. A docker buildx build has to be done by whoever merges, on a machine with Docker (user, 2026-11-09).",
+      "evidence": "docs/experiment-log.md 2026-11-08"
     },
     {
       "task": null,
@@ -32,7 +32,7 @@
       "status": "done",
       "blocking": true,
       "note": "scripts/run_task.py now has an amd GPU mode (/dev/kfd, /dev/dri, seccomp unconfined, group video; GPU subset through HIP_VISIBLE_DEVICES), chosen automatically when task.toml gpu_types are AMD. NVIDIA hosts and NVIDIA tasks behave as before (unit tests). Shipped as scripts/run_task.py with scripts/run_task-amd.patch for upstream, which applies with git apply to their revision 3bcefac. Checked with --dry-run only: Docker is not available on our nodes. The owners still have to accept the change.",
-      "evidence": "evaluation/geak/phibench_templates/run_task-amd.patch; evaluation/tests/test_geak_phibench_runner.py"
+      "evidence": "src/phibench_mi210/templates/run_task-amd.patch; tests/test_runner.py"
     },
     {
       "task": null,
@@ -96,7 +96,7 @@
       "status": "open",
       "blocking": false,
       "note": "Not run: the one-entry search does not apply to a whole-layer task. Its reference changes kernel code as well as tables, and the table-only piece of the same GEAK result reached only 1.02x.",
-      "evidence": "references/experiment-log.md 2026-11-07 (five pieces)"
+      "evidence": "docs/experiment-log.md 2026-11-07 (five pieces)"
     },
     {
       "task": "mi210-jais3-routed-moe-w8a16",

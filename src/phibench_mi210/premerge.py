@@ -1,9 +1,9 @@
 """Everything to check before our MI210 rows are merged into the Φ-Bench dataset, in one report.
 
-    python -m evaluation.geak.phibench_premerge --rows ROWS [--provenance DIR] [--review REVIEW.json]
+    python -m phibench_mi210.premerge --rows ROWS [--provenance DIR] [--review REVIEW.json]
 
 ROWS is laid out like the dataset (task_catalog.jsonl, task_catalog.json, tasks_index.json, tasks/<bench>/<task>/):
-the local output of phibench_row.py, or a download of the Hugging Face copy. Automatic checks, per row:
+the local output of row.py, or a download of the Hugging Face copy. Automatic checks, per row:
 
   columns      the 8 columns, order and types of the published catalog; task_dir not already in the dataset
   catalogs     task_catalog.jsonl, task_catalog.json and tasks_index.json list the same rows and anchors
@@ -18,7 +18,7 @@ the local output of phibench_row.py, or a download of the Hugging Face copy. Aut
                manifest (a WARN: upstream's README says the in-image copy omits the anchor, its own example
                task includes it)
 
-REVIEW (default evaluation/geak/phibench_specs/premerge-review.json) holds what no script can decide: owner approval,
+REVIEW (default specs/premerge-review.json) holds what no script can decide: owner approval,
 license, research checks such as a no-insight search or a real solver run, each with a status, a note and its
 evidence. A row is READY when no automatic check fails and no blocking review item is open.
 """
@@ -33,9 +33,9 @@ import sys
 import tomllib
 from pathlib import Path
 
-from evaluation.geak import phibench_row as pr
+from phibench_mi210 import row as pr
 
-DEFAULT_REVIEW = Path(__file__).parent / 'phibench_specs' / 'premerge-review.json'
+DEFAULT_REVIEW = Path(__file__).resolve().parents[2] / 'specs' / 'premerge-review.json'
 
 
 def upstream_rows() -> list[dict]:
@@ -142,7 +142,7 @@ def report(rows: Path, provenance: Path | None, review: dict) -> tuple[str, bool
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--rows', type=Path, required=True)
-    parser.add_argument('--provenance', type=Path, help='phibench_row.py provenance/ (local output only)')
+    parser.add_argument('--provenance', type=Path, help='row.py provenance/ (local output only)')
     parser.add_argument('--review', type=Path, default=DEFAULT_REVIEW)
     parser.add_argument('--write', type=Path, help='also write the report to this Markdown file')
     args = parser.parse_args(argv)

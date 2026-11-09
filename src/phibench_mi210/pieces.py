@@ -1,14 +1,10 @@
-"""Measure the separate pieces of a GEAK result, each scored only on the rows it changes.
+"""Score the separate pieces of a GEAK result, each on the rows it changes, with a plan's frozen rule.
 
-    # host, CPU: one candidate directory and one Round check work directory per piece
-    python -m evaluation.geak.phibench_pieces build --plan PLAN.json --results RESULTS --out OUT
+    python -m phibench_mi210.pieces --plan PLAN.json --out OUT
 
-    # one MI210, one piece at a time, nothing else on the node: the normal Round check on OUT/<piece>/work
-    ./k2 py --gpus N --image v0.32.0 --dev --mount WORKTREE --mount OUT -- \
-        WORKTREE/evaluation/geak/round_check_jais3.py measure --work-dir OUT/<piece>/work
-
-    # host, CPU: apply the plan's frozen rule to the verdicts
-    python -m evaluation.geak.phibench_pieces score --plan PLAN.json --out OUT
+Building and measuring a piece needs the GEAK task files and the Round check, so it stays in deploy_bbq
+(`python -m evaluation.geak.phibench_pieces build`, then `round_check_jais3.py measure` on each OUT/<piece>/work, one
+at a time on an idle MI210 node). This step only reads OUT/<piece>/work/verdict.json; see docs/inputs.md.
 
 A piece starts from the served kernel (the task's baseline_* files, the Round check's arm A) or from the task's
 stacked starting files (arm S). Its target score is sum(weight x start time) / sum(weight x candidate time) over its
@@ -18,28 +14,30 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import math
 import statistics
-import subprocess
 import sys
 from pathlib import Path
 
-from evaluation.geak import round_check_jais3 as rc
-
 FAILED_CHECKS = ('fail_correctness', 'fail_control', 'fail_rules')
 
+# The Round check's noise rule (deploy_bbq evaluation/geak/round_check_jais3.py, rule of 2026-10-29): the band is
+# max(2%, the 90th percentile, nearest rank, of the per-round |A2/A - 1| gaps). Copied so that this repository needs
+# no GEAK code; tests/test_pieces.py pins it.
+MIN_NOISE = 0.02
+NOISE_PERCENTILE = 0.90
 
-def build_piece(piece: dict, task: str, results: Path, out: Path, tasks_root: Path = rc.TASKS_DIR) -> Path:
-    """Candidate directory: the piece's start files with its patch applied. Refuses when the patch does not apply."""
-    candidate = out / piece['id'] / 'candidate'
-    candidate.mkdir(parents=True)
-    for editable, baseline in rc.TASKS[task].items():
-        source = baseline if piece['start'] == 'served' else editable
-        shutil.copy(tasks_root / task / source, candidate / editable)
-    patch = results / piece['patch']
-    shutil.copy(patch, out / piece['id'] / 'piece.patch')
-    subprocess.run(['git', 'apply', str(patch.resolve())], cwd=candidate, check=True)
-    return candidate
+
+def nearest_rank(values: list[float], q: float) -> float:
+    """The ceil(q x n)-th smallest value (nearest-rank percentile)."""
+    if not values:
+        raise ValueError('no values')
+    ordered = sorted(values)
+    return ordered[min(len(ordered), max(1, math.ceil(q * len(ordered)))) - 1]
+
+
+def noise_band(gaps: list[float]) -> float:
+    return max(MIN_NOISE, nearest_rank(gaps, NOISE_PERCENTILE))
 
 
 def score_piece(piece: dict, verdict: dict, min_speedup: float, slower_scope: str = 'all') -> dict:
@@ -63,7 +61,7 @@ def score_piece(piece: dict, verdict: dict, min_speedup: float, slower_scope: st
         a = sum(r['weight'] * r['rounds_ms']['A'][i] for r in target.values())
         a2 = sum(r['weight'] * r['rounds_ms']['A2'][i] for r in target.values())
         gaps.append(abs(a2 / a - 1))
-    noise = rc.noise_band(gaps)
+    noise = noise_band(gaps)
     whole_start = sum(r['weight'] * start_ms(r) for r in rows.values())
     whole_candidate = sum(r['weight'] * r['candidate_ms'] for r in rows.values())
     slower = [k for k, r in rows.items() if row_state(r) == 'slower']
@@ -84,16 +82,6 @@ def score_piece(piece: dict, verdict: dict, min_speedup: float, slower_scope: st
             'row_speedups': {k: start_ms(r) / r['candidate_ms'] for k, r in rows.items()},
             'round_check_verdict': summary['verdict'], 'correctness': summary['correctness'],
             'qualifies': not reasons, 'reasons': reasons}
-
-
-def cmd_build(plan: dict, results: Path, out: Path) -> int:
-    for piece in plan['pieces']:
-        candidate = build_piece(piece, plan['task'], results, out)
-        code = rc.main(['prepare', '--task', plan['task'], '--candidate', str(candidate),
-                        '--out-dir', str(out / piece['id'] / 'work')])
-        if code != 0:
-            print(f"{piece['id']}: prepare exited {code}, not measurable", file=sys.stderr)
-    return 0
 
 
 def cmd_score(plan: dict, out: Path) -> int:
@@ -117,17 +105,10 @@ def cmd_score(plan: dict, out: Path) -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('command', choices=('build', 'score'))
     parser.add_argument('--plan', type=Path, required=True)
-    parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--results', type=Path, help='build: the directory the plan\'s patch paths start from')
+    parser.add_argument('--out', type=Path, required=True, help='the directory deploy_bbq built the pieces in')
     args = parser.parse_args(argv)
-    plan = json.loads(args.plan.read_text())
-    if args.command == 'build':
-        if args.results is None:
-            parser.error('build needs --results')
-        return cmd_build(plan, args.results, args.out)
-    return cmd_score(plan, args.out)
+    return cmd_score(json.loads(args.plan.read_text()), args.out)
 
 
 if __name__ == '__main__':

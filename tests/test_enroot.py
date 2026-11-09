@@ -3,8 +3,8 @@ import random
 
 import pytest
 
-from evaluation.geak import phibench_enroot as pe
-from evaluation.geak import phibench_table_search as ts
+from phibench_mi210 import enroot as pe
+from phibench_mi210 import table_search as ts
 
 
 def test_continued_lines_join_as_docker_joins_them():

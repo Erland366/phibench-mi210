@@ -15,12 +15,12 @@ the reference for that later merge and for any paper that uses these rows.
 
 ```bash
 # every automatic check plus the review items, on the local rows or on a download of the Hugging Face copy
-python -m evaluation.geak.phibench_premerge --rows /data/erland/results/phibench-rows \
+uv run python -m phibench_mi210.premerge --rows /data/erland/results/phibench-rows \
     --provenance /data/erland/results/phibench-rows/provenance
 ```
 
 The review items (owner approval, license, research checks) are in
-`evaluation/geak/phibench_specs/premerge-review.json`; update their status there. A row is READY only when no automatic
+`specs/premerge-review.json`; update their status there. A row is READY only when no automatic
 check fails and no blocking item is open. The last full output is
 `/data/erland/results/phibench-rows-premerge-check-20261109.md`.
 
@@ -36,7 +36,7 @@ Local packages: `/data/erland/results/phibench-rows`. Public draft copy: `Erland
 (commit `323e515`, 2026-11-09, pushed with git so executable bits are kept; public since 2026-11-07 by the user's
 choice). Fetch it with `git clone`: an HTTP download never sets executable bits, and `verify_package.py` then fails.
 
-## Automatic checks (phibench_premerge.py)
+## Automatic checks (premerge.py)
 
 All three rows pass: the 8 columns, order and types of the published catalog, and no task_dir clash; the three catalog
 files agree; `ref_speedup.txt`, `task.toml` and the catalog hold the same anchor; the dataset's own `verify_package.py`;
@@ -50,7 +50,7 @@ The Hugging Face copy, fetched with `git clone`, matches the local rows file for
 
 ## Calibration (package verifier, Enroot image from each package's Dockerfile)
 
-Rules frozen in `evaluation/geak/phibench_specs/calibration-2026-11-08.json` and `calibration-combined-2026-11-08.json`.
+Rules frozen in `specs/calibration-2026-11-08.json` and `calibration-combined-2026-11-08.json`.
 Node 303, GPU 0, one run at a time; one run takes about 4 min 47 s.
 
 | Row | No-change | Negative | Oracle runs (speedup) | Anchor |
@@ -67,7 +67,7 @@ Oracle-agent check (`solution/solve.sh` lands the reference, candidate scoring),
 node 303, including GPU 0, with Jais-3 Screen servers that another session started at 10:22-10:24. The frozen rule
 requires the node to itself, so none of them is used; they are kept in
 `/data/erland/results/phibench-calibration/invalid-shared-node-20261108`. The m256 and m1024 runs ended by 10:08, before
-the servers started. The cause on our side: the queue checked the GPUs only once, at the start. `phibench_enroot.py
+the servers started. The cause on our side: the queue checked the GPUs only once, at the start. `enroot.py
 score` now refuses to start unless every GPU on the node is idle, and discards a run that finds the node busy afterwards.
 Screen numbers measured on 303 between 12:21 and 13:11 may have been slowed by these runs. The second attempt
 (2026-11-09 07:49-08:36) waited for 15 idle minutes and held the node's GPU lock (`K2_GPU_LOCK`) throughout.
@@ -105,9 +105,9 @@ column (upstream anchors are on NVIDIA H20).
 
 ## Evidence
 
-- Code: `evaluation/geak/phibench_row.py`, `phibench_pieces.py`, `phibench_enroot.py`, `phibench_table_search.py`,
-  `phibench_premerge.py`, `phibench_templates/run_task.py` (AMD runner); tests in `evaluation/tests/test_geak_phibench_*.py`.
+- Code: `src/phibench_mi210/` (`row.py`, `pieces.py`, `enroot.py`, `table_search.py`, `premerge.py`,
+  `templates/run_task.py`, the AMD runner); tests in `tests/`.
 - Calibration runs: `/data/erland/results/phibench-calibration/<task>/` (each run's `/logs/verifier`, `<mode>.json`).
 - Search: `/data/erland/results/phibench-search/` (trials, summaries, finalists, finalist verifier runs).
 - Earlier packages: `/data/erland/results/phibench-rows-provisional-20261108`, `phibench-rows-before-*`.
-- Chronology: `references/experiment-log.md`, entries 2026-11-06 to 2026-11-08.
+- Chronology: `docs/experiment-log.md`.
