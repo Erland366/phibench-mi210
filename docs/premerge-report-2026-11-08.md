@@ -33,7 +33,8 @@ check fails and no blocking item is open. The last full output is
 | `mi210-jais3-moe-m1024` | 1024 tokens only | 1.249117 | calibrated | one table entry (14 lines) | no |
 
 Local packages: `/data/erland/results/phibench-rows`. Public draft copy: `Erland/phibench-mi210-rows` on Hugging Face
-(commit `1149a15a`, public since 2026-11-07 by the user's choice).
+(commit `323e515`, 2026-11-09, pushed with git so executable bits are kept; public since 2026-11-07 by the user's
+choice). Fetch it with `git clone`: an HTTP download never sets executable bits, and `verify_package.py` then fails.
 
 ## Automatic checks (phibench_premerge.py)
 
@@ -44,10 +45,8 @@ the reference's origin; `*.patch` and `solution/` kept out of the image; scripts
 
 All three rows pass every automatic check (2026-11-09); each warns that the anchor is copied into the image.
 
-The **Hugging Face copy fails** `verify_package.py` and `executable` for all three rows: the upload API stored every file
-as 100644, so `solve.sh`, `pre_artifacts.sh`, `tests/test.sh` and the runtime scripts lose their executable bit (upstream
-stores them 100755). The next upload must go through `git push`, which keeps the mode. The local packages are correct
-(the runtime scripts were fixed 2026-11-08; contents unchanged).
+The Hugging Face copy, fetched with `git clone`, matches the local rows file for file and passes the same checks
+(2026-11-09). Its first uploads (through the upload API) had stored every file 100644; it was re-pushed with git.
 
 ## Calibration (package verifier, Enroot image from each package's Dockerfile)
 
@@ -91,9 +90,9 @@ Blocking:
 2. Owners' approval (Omar and the other Φ-Bench owners) and the license label.
 3. Build each image once with `docker buildx` (only Enroot has been used; no docker group on the nodes).
 4. The upstream runner (`scripts/run_task.py`) passes only NVIDIA GPUs; the owners must accept a change or a manual path.
-5. Re-upload with `git push` so the Hugging Face copy keeps executable bits (and carries the combined row's anchor).
 
-Done since 2026-11-08: the combined row's calibration and the oracle-agent check on all three rows.
+Done since 2026-11-08: the combined row's calibration, the oracle-agent check on all three rows, and a `git push`
+upload that keeps executable bits.
 
 Not blocking, for the owners: whether the image may carry the anchor (upstream's README says no, its own example lh
 task does), and whether MI210 stated in the summary, instruction, `task.toml` and caveat is enough without a hardware

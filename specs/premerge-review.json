@@ -53,10 +53,10 @@
     {
       "task": null,
       "check": "Hugging Face copy keeps executable bits",
-      "status": "open",
+      "status": "done",
       "blocking": true,
-      "note": "The upload API stored every file 100644; upstream stores solve.sh, pre_artifacts.sh, tests/test.sh and environment/runtime/*.sh 100755, and verify_package.py fails on a download. Re-upload with git push.",
-      "evidence": "phibench_premerge.py on a snapshot of Erland/phibench-mi210-rows"
+      "note": "Re-uploaded with git push (commit 323e515, 2026-11-09): 21 scripts stored 100755 as upstream stores them; a fresh git clone passes every automatic check. An HTTP download (snapshot_download) never sets executable bits for any repository, so fetch the rows with git clone.",
+      "evidence": "https://huggingface.co/datasets/Erland/phibench-mi210-rows"
     },
     {
       "task": "mi210-jais3-moe-m1024",
