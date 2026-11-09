@@ -1794,8 +1794,8 @@ def parse_args(argv):
                    choices=["auto", "toolkit", "manual", "amd", "none"],
                    help="toolkit: --gpus all. manual: /dev/nvidia* devices plus the host driver "
                         "user-space (for hosts without nvidia-container-toolkit). amd: /dev/kfd and "
-                        "/dev/dri (ROCm); auto picks it when task.toml gpu_types are AMD or the host "
-                        "has /dev/kfd and no NVIDIA driver")
+                        "/dev/dri (ROCm); auto picks it when task.toml gpu_types are AMD, or when "
+                        "they are not given and the host has /dev/kfd and no NVIDIA driver")
     g.add_argument("--gpu-devices", help="e.g. 0,1 or /dev/nvidia0 (manual mode); amd: HIP indices")
     g.add_argument("--nvidia-lib-dir", default=DEFAULT_NVIDIA_LIB_DIR,
                    help=f"manual mode driver user-space dir (default {DEFAULT_NVIDIA_LIB_DIR})")
