@@ -173,7 +173,275 @@ def rebuild_index(out: Path) -> int:
     return len(rows)
 
 
-ADAPTERS = {}  # source -> function(entry, builder) -> dict of record parts (filled in per source)
+# ---------------------------------------------------------------------------------------------------- open models
+
+COMPACTION_PROMPT = 'You are the component that summarizes a conversation when its context window is about to overflow.'
+
+
+def _text_of(content) -> str:
+    """The text of a message's content: a string, or a list of text parts."""
+    if content is None:
+        return ''
+    if isinstance(content, str):
+        return content
+    return '\n'.join(part.get('text', '') for part in content if isinstance(part, dict))
+
+
+def _key(msg: dict) -> tuple:
+    """What identifies a message when a later request resends it (reasoning and refusal fields vary)."""
+    calls = tuple((c.get('id'), c['function']['name'], c['function']['arguments']) for c in msg.get('tool_calls') or ())
+    return (msg['role'], _text_of(msg.get('content')), calls, msg.get('tool_call_id'))
+
+
+def _out(msg: dict, call: int) -> dict:
+    row = {'role': msg['role'], 'content': msg.get('content')}
+    reasoning = msg.get('reasoning_content') or msg.get('reasoning')
+    if reasoning:
+        row['reasoning'] = reasoning
+    if msg.get('tool_calls'):
+        row['tool_calls'] = msg['tool_calls']
+    if msg.get('tool_call_id'):
+        row['tool_call_id'] = msg['tool_call_id']
+    row['call'] = call
+    return row
+
+
+def is_compaction(request: dict) -> bool:
+    last = request['messages'][-1]
+    return last['role'] == 'user' and _text_of(last.get('content')).startswith(COMPACTION_PROMPT)
+
+
+def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
+    """The run as one list of messages from its raw model calls, in order (docs/trace-records.md).
+
+    A call's request is the conversation so far; only what is new since the previous call is emitted. A compaction
+    call becomes one event line (with the summary and the model's reasoning) and the next call's rewritten history is
+    emitted whole, after its system message. A failed call becomes an event line. Returns (rows, counts)."""
+    rows, ctx = [], None
+    counts = {'calls': len(calls), 'failed_calls': 0, 'compactions': 0, 'history_rewrites': 0}
+    system_key = None
+    for i, call in enumerate(calls):
+        req, resp = call['request'], call.get('response')
+        msgs = req['messages']
+        if resp is None:
+            counts['failed_calls'] += 1
+            rows.append({'role': 'event', 'event': 'failed_call', 'error': (call.get('error') or {}).get('message'),
+                         'call': i})
+            continue
+        message = resp['choices'][0]['message']
+        if is_compaction(req):
+            counts['compactions'] += 1
+            rows.append({'role': 'event', 'event': 'compaction', 'summary': message.get('content'),
+                         'reasoning': message.get('reasoning_content'), 'call': i})
+            ctx = None
+            continue
+        keys = [_key(m) for m in msgs]
+        if ctx is not None and keys[:len(ctx)] == ctx:
+            new = msgs[len(ctx):]
+        else:
+            if ctx is not None:
+                counts['history_rewrites'] += 1
+                rows.append({'role': 'event', 'event': 'history_rewritten', 'call': i})
+            new = msgs
+            if new and new[0]['role'] == 'system' and _key(new[0]) == system_key:
+                new = new[1:]
+        for m in new:
+            if m['role'] == 'system':
+                system_key = _key(m)
+            rows.append(_out(m, i))
+        rows.append(_out(message, i))
+        ctx = keys + [_key(message)]
+    return rows, counts
+
+
+def _read_json(path: Path):
+    if not path.is_file():
+        raise RecordError(f'missing file {path}')
+    return json.loads(path.read_text())
+
+
+def _read_line(path: Path) -> str:
+    if not path.is_file():
+        raise RecordError(f'missing file {path}')
+    return path.read_text().strip()
+
+
+def _optional(builder: 'RecordBuilder', src: Path, dest_rel: str) -> bool:
+    if src.is_file():
+        builder.copy(src, dest_rel)
+        return True
+    if src.is_dir():
+        builder.copy_tree(src, dest_rel)
+        return True
+    return False
+
+
+def _final_score(entry: dict, run: Path, builder: 'RecordBuilder', record: dict) -> None:
+    """The counted final score (final/verifier/reward.json), thrown-away scores, and the anchor check."""
+    final = run / 'final'
+    reward_path = final / 'verifier' / 'reward.json'
+    if reward_path.is_file():
+        r = _read_json(reward_path)
+        builder.copy_tree(final / 'verifier', 'verifier/final')
+        for name in ('finalize.txt', 'console.log', 'exit', 'started', 'finished'):
+            _optional(builder, final / name, f'verifier/{name}')
+        _optional(builder, run / 'logs' / 'verifier', 'verifier/session')
+        sheet_ref = entry['anchor'].get('ref_speedup')
+        if sheet_ref is None or abs(float(r['ref_speedup']) - float(sheet_ref)) > 1e-9:
+            raise RecordError(f'{entry["record_id"]}: the final score used ref_speedup {r["ref_speedup"]}, the sheet '
+                              f'says {sheet_ref}; fix the sheet or explain the anchor')
+        gates = r.get('gates') or {}
+        record['outcome'].update(
+            reward=float(r['reward']), speedup=r.get('speedup'), ref_speedup=r['ref_speedup'],
+            correctness_ok=gates.get('correctness_ok'), gates=gates,
+            hard_fail_reasons=r.get('hard_fail_reasons', []), verifier_output='verifier/final/reward.json')
+        exit_path = final / 'exit'
+        if exit_path.is_file():
+            record['outcome']['verifier_exit_code'] = int(_read_line(exit_path))
+    elif not entry.get('invalid_reason'):
+        raise RecordError(f'{entry["record_id"]}: no final score at {reward_path}; a valid run needs one '
+                          '(or give invalid_reason in the sheet)')
+    invalid_scores = []
+    for n, item in enumerate(entry.get('invalid_scores', []), 1):
+        src = run / item['dir']
+        builder.copy_tree(src, f'verifier/invalid-{n}')
+        invalid_scores.append({'dir': f'verifier/invalid-{n}', 'reason': item['reason'],
+                               'reward': _read_json(src / 'verifier' / 'reward.json').get('reward')
+                               if (src / 'verifier' / 'reward.json').is_file() else None})
+    record['outcome']['invalid_scores'] = invalid_scores
+
+
+def _loop(entry: dict, run: Path, builder: 'RecordBuilder', record: dict) -> None:
+    """Submissions from logs/loop/ (absent when the solver never submitted)."""
+    loop = run / 'logs' / 'loop'
+    if not loop.is_dir():
+        record['outcome']['final_tree'] = 'starting code (no submissions)'
+        return
+    for f in sorted(loop.iterdir()):
+        if f.name != 'submissions':
+            _optional(builder, f, f'harness/loop/{f.name}')
+    unclean = {int(k): v for k, v in entry.get('unclean_submissions', {}).items()}
+    known = entry.get('submission_timing') == 'checked'
+    state = loop / 'state.jsonl'
+    lines = [json.loads(l) for l in state.read_text().splitlines() if l.strip()] if state.is_file() else []
+    for s in lines:
+        n = int(s['submission'])
+        sub_dir = loop / 'submissions' / str(n)
+        builder.copy_tree(sub_dir, f'code/submissions/{n}')
+        record['submissions'].append({
+            'n': n, 'ts': s.get('ts'), 'speedup': s.get('speedup'), 'reward': s.get('reward'),
+            'correctness_ok': s.get('correctness_ok'), 'hard_fail_reasons': s.get('hard_fail_reasons', []),
+            'tree': s.get('tree'), 'diff': f'code/submissions/{n}/candidate.diff',
+            'timing_clean': (n not in unclean) if known else None, 'timing_note': unclean.get(n)})
+    fin = loop / 'finalize.json'
+    if fin.is_file():
+        f = json.loads(fin.read_text())
+        planted = f.get('plant_method') not in (None, 'none') and f.get('winning_submission') is not None
+        record['outcome']['final_tree'] = (f'winning submission {f["winning_submission"]}' if planted
+                                           else 'starting code (no submission accepted)')
+        record['outcome']['termination_reason'] = f.get('termination_reason')
+
+
+def _common_harness(entry: dict, run: Path, builder: 'RecordBuilder', record: dict) -> dict:
+    builder.copy(run / 'prompt.txt', 'prompt.txt')
+    result = _read_json(run / 'agent_result.json')
+    builder.copy(run / 'agent_result.json', 'harness/agent_result.json')
+    for name in ('stderr.log', 'sandbox-build.log', 'started', 'finished'):
+        _optional(builder, run / name, f'harness/{name}')
+    for key, dest in (('job_log', 'harness/job.log'),):
+        if entry.get(key):
+            builder.copy(Path(entry[key]), dest)
+    if not entry.get('serving_log'):
+        raise RecordError(f'{entry["record_id"]}: serving_log (the model server log of this run) is required')
+    serving = Path(entry['serving_log'])
+    builder.copy(serving, f'serving/{serving.name}')
+    record['time'] = {'started': _read_line(run / 'started') if (run / 'started').is_file() else None,
+                      'finished': _read_line(run / 'finished') if (run / 'finished').is_file() else None}
+    patch = run / 'final' / 'model.patch'
+    if patch.is_file():
+        builder.copy(patch, 'code/final.patch')
+        _optional(builder, run / 'final' / 'model_status.txt', 'code/final.status.txt')
+    else:
+        record['notes'] = (record['notes'] + ' ' if record['notes'] else '') + 'final patch was not saved'
+    return result
+
+
+def convert_qwen_code(entry: dict, builder: 'RecordBuilder', record: dict) -> None:
+    run = Path(entry['run_dir'])
+    result = _common_harness(entry, run, builder, record)
+    record['time']['wall_limit_s'] = result.get('wall_limit_s')
+    record['outcome']['harness_exit_code'] = result.get('exit_code')
+    openai_dir = run / 'logs' / 'agent' / 'openai'
+    files = sorted(openai_dir.glob('openai-*.json')) if openai_dir.is_dir() else []
+    if not files:
+        raise RecordError(f'{entry["record_id"]}: no raw model calls in {openai_dir}')
+    builder.copy_tree(openai_dir, 'conversation/raw/openai')
+    builder.copy(run / 'stream.jsonl', 'conversation/raw/stream.jsonl')
+    _optional(builder, run / 'settings.json', 'conversation/raw/settings.json')
+    _optional(builder, run / 'logs' / 'agent' / 'home' / '.qwen', 'conversation/raw/qwen-home')
+    init = next((json.loads(l) for l in (run / 'stream.jsonl').read_text().splitlines()
+                 if l.strip() and json.loads(l).get('subtype') == 'init'), None)
+    if init is None:
+        raise RecordError(f'{entry["record_id"]}: stream.jsonl has no init line (harness version, model)')
+    version = init.get('qwen_code_version')
+    if entry['agent'].get('version') not in (None, version):
+        raise RecordError(f'{entry["record_id"]}: sheet says Qwen Code {entry["agent"]["version"]}, '
+                          f'the stream says {version}')
+    record['agent']['version'] = version
+    record['model']['served_name'] = init.get('model')
+    calls = [json.loads(f.read_text()) for f in files]
+    rows, counts = messages_from_openai_calls(calls)
+    builder.write_jsonl('conversation/messages.jsonl', rows)
+    record['conversation'] = {'main': 'conversation/raw/openai', 'harness_log': 'conversation/raw/stream.jsonl',
+                              'reasoning_included': True, 'thinking_dropped': False, **counts}
+    _loop(entry, run, builder, record)
+    _final_score(entry, run, builder, record)
+
+
+def messages_from_mini_swe_agent(traj: dict) -> list[dict]:
+    rows = []
+    for i, m in enumerate(traj['messages']):
+        if m['role'] == 'exit':
+            rows.append({'role': 'event', 'event': 'exit', 'status': m.get('content'), 'step': i})
+            continue
+        row = {'role': m['role'], 'content': m.get('content')}
+        reasoning = m.get('reasoning_content') or (m.get('provider_specific_fields') or {}).get('reasoning')
+        if reasoning:
+            row['reasoning'] = reasoning
+        actions = (m.get('extra') or {}).get('actions')
+        if actions:
+            row['actions'] = actions
+        row['step'] = i
+        rows.append(row)
+    return rows
+
+
+def convert_mini_swe_agent(entry: dict, builder: 'RecordBuilder', record: dict) -> None:
+    run = Path(entry['run_dir'])
+    result = _common_harness(entry, run, builder, record)
+    record['outcome']['harness_exit_status'] = result.get('exit_status')
+    traj = _read_json(run / 'trajectory.json')
+    builder.copy(run / 'trajectory.json', 'conversation/raw/trajectory.json')
+    version = traj.get('info', {}).get('mini_version')
+    if entry['agent'].get('version') not in (None, version):
+        raise RecordError(f'{entry["record_id"]}: sheet says mini-swe-agent {entry["agent"]["version"]}, '
+                          f'the trajectory says {version}')
+    record['agent']['version'] = version
+    record['model']['served_name'] = traj.get('info', {}).get('config', {}).get('model', {}).get('model_name')
+    rows = messages_from_mini_swe_agent(traj)
+    builder.write_jsonl('conversation/messages.jsonl', rows)
+    record['conversation'] = {'main': 'conversation/raw/trajectory.json', 'reasoning_included': True,
+                              'thinking_dropped': False, 'compactions': 0,
+                              'steps': sum(1 for r in rows if r['role'] == 'assistant')}
+    _loop(entry, run, builder, record)
+    _final_score(entry, run, builder, record)
+
+
+# source, harness -> function(entry, builder, record) that copies the files and fills the record
+ADAPTERS = {
+    ('open_model_run', 'qwen-code'): convert_qwen_code,
+    ('open_model_run', 'mini-swe-agent'): convert_mini_swe_agent,
+}
 
 
 def convert(sheet: dict, out: Path) -> list[str]:

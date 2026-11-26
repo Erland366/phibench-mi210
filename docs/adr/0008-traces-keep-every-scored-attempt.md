@@ -18,6 +18,9 @@ copy of a conversation is the raw model calls (each request and response as sent
 its history rewrites what its own log shows; the harness's log is kept as is, and a flat message list is generated
 from the raw calls. Raw files are never edited.
 
+A run is stored only once its task exists as a Φ-Bench row (user, 2026-11-26): the row comes first, then the traces
+of the runs on it. GEAK runs whose result is not a row yet wait.
+
 ## Consequences
 
 - A GEAK attempt is scored on the task built from that GEAK run; since the anchor is the run's final result, most of

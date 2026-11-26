@@ -1,6 +1,8 @@
 # Trace records: one run of an agent on a task
 
-> **Status (2026-11-26): draft for agreement between the two machines; no converter exists yet.**
+> **Status (2026-11-26): agreed with the agent on the second machine. The converter (`src/phibench_mi210/traces.py`)
+> reads Qwen Code and mini-swe-agent runs; it is tested on small folders shaped like the real runs, not yet on the
+> real runs.**
 
 The trace dataset holds one record per **run** (see [CONTEXT.md](../CONTEXT.md)): one session of an agent on one
 task, from its prompt to its end. The decisions behind it are ADR 0002 (private, apart from the tasks) and ADR 0008
@@ -16,6 +18,37 @@ task, from its prompt to its end. The decisions behind it are ADR 0002 (private,
 
 Not runs, and not stored: harness tests on dummy prompts, verifier calibration runs, collided runs. A run that was
 meant as an attempt but whose agent never started is stored as invalid.
+
+A run is stored only once its task exists as a Φ-Bench row (user, 2026-11-26). GEAK runs whose result has not been
+turned into a row yet (the attention and MoVA runs, for example) keep their conversations where they are and wait.
+
+## Converting: the run sheet
+
+`python -m phibench_mi210.traces convert --sheet SHEET.json --out DATASET` converts the runs a sheet lists; `index
+--out DATASET` rebuilds `index.jsonl`. The sheet holds what a run folder does not say itself:
+
+```json
+{"machine": "auh7-1b-gpu-240",
+ "runs": [{"record_id": "2026-11-25-qwen-code-causal-delivery-vclock-1", "source": "open_model_run",
+           "run_dir": ".../runs/2026-11-25-qwen-code-causal-delivery-vclock-1",
+           "task": {"id": "wro-causal-delivery-vclock-coupled-loop16", "bench": "lh", "kind": "performance",
+                    "origin": "upstream Phi-Bench 3bcefac"},
+           "agent": {"harness": "qwen-code"},
+           "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0, TP4, 131072 context"},
+           "hardware": {"served_on": "4 x MI210", "scored_on": "AMD EPYC 9334"},
+           "anchor": {"ref_speedup": 175.96, "evidence": ".../runs/2026-11-25-...-calibration"},
+           "serving_log": ".../logs/serve-qwen-...-20261125T2127.log",
+           "job_log": ".../runs/2026-11-25-qwen-code-causal-delivery-vclock-1.job.log",
+           "submission_timing": "checked", "unclean_submissions": {},
+           "invalid_reason": null, "invalid_scores": [], "notes": ""}]}
+```
+
+The converter checks the sheet against the run: the harness version and the anchor the final score used must match
+what the sheet says, or it refuses. `submission_timing: "checked"` means someone checked each in-session timing for a
+shared machine; the ones that were shared go in `unclean_submissions` (`{"<n>": "<reason>"}`). Without it, every
+submission's `timing_clean` is unknown (`null`). A thrown-away final score goes in `invalid_scores`
+(`[{"dir": "final-busy", "reason": "..."}]`). Readers exist for `open_model_run` with Qwen Code and mini-swe-agent;
+others are refused by name until they are written.
 
 ## Layout
 

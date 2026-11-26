@@ -30,6 +30,7 @@ src/phibench_mi210/
   enroot.py        build a task image with Enroot from its Dockerfile; run its verifier in a fresh copy
   table_search.py  a solver with no kernel insight: search one tile-table entry (is a one-entry task too easy?)
   premerge.py      every automatic check before a merge, plus the review items, in one report
+  traces.py        agent runs on a task -> trace records, labeled by the task's verifier (docs/trace-records.md)
   templates/       package templates; vendored/ holds byte copies of upstream files (NOTICE.md);
                    run_task.py is upstream's runner with AMD GPU support, run_task-amd.patch the change
 specs/             per task: spec.json and instruction.md (the solver's prompt); frozen plans; premerge-review.json
