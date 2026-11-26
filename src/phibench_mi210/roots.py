@@ -4,7 +4,7 @@ A spec or run sheet never writes a machine path. It writes `$RESULTS/...` or `$W
 the names to its own folders in a git-ignored file, `specs/local-roots.json` (or the file named by the environment
 variable PHIBENCH_ROOTS):
 
-    {"RESULTS": "/data/erland/results", "WORK": "/vast/users/qirong.ho/erland"}
+    {"RESULTS": "/path/to/results", "WORK": "/path/to/work"}
 
 `specs/local-roots.example.json` lists the names and what each one is. A name that is not in the list, or not set on
 this machine, is refused with the file to fix; nothing falls back to a guess.
