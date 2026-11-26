@@ -1,0 +1,22 @@
+{
+  "frozen_on": "2026-11-24, before solver run 3",
+  "approved_by_user": "2026-11-24 (\"yes please continue\": Qwen Code harness, model default sampling, the shell-timeout note)",
+  "question": "With Qwen Code (auto-compaction) as the harness, can Qwen3.8-27B work on m256 for the full session, and what does it score?",
+  "task": "mi210-jais3-moe-m256, as in specs/qwen-agent-pilot-2026-11-23.json",
+  "where": "auh7-1b-gpu-240, task on HIP device 0, lock /tmp/phibench-auh7-240-gpus.lock",
+  "model_server": "as in specs/qwen-agent-pilot-2026-11-24.json (vLLM 0.32.0, TP 4 on GPUs 4-7, context 131072, TRITON_ATTN, reasoning parser qwen3), plus tool calls: --enable-auto-tool-choice --tool-call-parser qwen3_coder",
+  "sampling": "the model's generation_config.json defaults (temperature 1.0, top_k 20, top_p 0.95); Qwen Code sends no sampling parameters. Runs 1 and 2 used temperature 0.6.",
+  "harness": {
+    "agent": "Qwen Code 0.28.4 on Node.js 26.12.1, mounted read-only at /opt/agent, run headless: qwen --yolo --auth-type openai --output-format stream-json PROMPT",
+    "settings": "contextWindowSize 131072 (auto-compaction at Qwen Code's default, an estimated 98k tokens), request timeout 1 h, chat recording on, raw OpenAI logging to /logs/agent/openai, usage statistics, telemetry and auto-update off, tools web_search, web_fetch and image_gen removed",
+    "environment": "writable sandbox of the task image, apptainer exec --fakeroot --contain --cleanenv --no-home, /dev/kfd and /dev/dri bound, a host directory at /tmp, HIP_VISIBLE_DEVICES=0, working directory /app/repo, proxy variables unset (no route to the internet)",
+    "prompt": "instruction.md verbatim, then: '---' and 'Note on your shell tool: a command runs for at most 2 minutes unless you give it a longer timeout (up to 10 minutes). `bash /opt/loop/submit.sh` takes about 5 minutes.'",
+    "limits": "wall time 14400 s (timeout --signal=INT, killed 60 s later), 16 scored submissions (the task's own limit)",
+    "script": "/vast/users/qirong.ho/erland/phibench-apptainer/scripts/run_qwen_code.sh"
+  },
+  "final_score": "scripts/final_score.sh, unchanged from specs/qwen-agent-pilot-2026-11-24.json: stop the server, every GPU idle, auto-finalize if at least one submission and no finalize, /tests created, tests/test.sh in the solver's sandbox, every GPU idle after",
+  "audit": "the stream and raw API logs searched for any read of /opt/loop/private, /tests or the patches, and for network commands; reported, the score unchanged",
+  "runs": "one: runs/2026-11-24-qwen-code-m256-3",
+  "not_a_claim": "one run on one task; harness and sampling both differ from runs 1 and 2, so the comparison with them cannot be attributed to either alone",
+  "stop_on": ["a GPU outside 4-7 busy before or after a timing run", "an unexpected failure of the setup"]
+}

@@ -1,0 +1,37 @@
+{
+  "frozen_on": "2026-11-23, before any verifier or solver run with a model server on the node",
+  "approved_by_user": "2026-11-23 (interference check, one solver run on m256, final score with the node idle)",
+  "questions": [
+    "How far do the in-session scores (submit.sh) move when a model server holds GPUs 4-7 of the node?",
+    "Can Qwen3.8-27B driven by mini-swe-agent run the m256 task end to end inside the Apptainer image, and what does it score?"
+  ],
+  "task": "mi210-jais3-moe-m256, the package in work_datasets/phibench-mi210-rows (Erland/phibench-mi210-rows commit 323e515)",
+  "image": "/vast/users/qirong.ho/erland/phibench-apptainer/images/mi210-jais3-moe-m256.sif (built 2026-11-23, see specs/apptainer-check-2026-11-23.json)",
+  "where": "auh7-1b-gpu-240 (Slurm job 519331, all 8 MI210s); task on HIP device 0; one GPU job at a time under the lock /tmp/phibench-auh7-240-gpus.lock",
+  "model_server": {
+    "model": "Qwen/Qwen3.8-27B (Hugging Face, BF16, 27.8B parameters), text only (--language-model-only)",
+    "serving": "vLLM 0.32.0 from /vast/users/qirong.ho/erland/phibench-apptainer/images/vllm-openai-rocm-v0.32.0.sif, scripts/serve_qwen.sh, tensor parallel 4 on HIP devices 4,5,6,7, max context 131072, gpu-memory-utilization 0.90, reasoning parser qwen3",
+    "sampling": "temperature 0.6, other settings at the server's defaults (generation_config.json of the model)"
+  },
+  "step_1_interference": {
+    "what": "scripts/score_once.sh on GPU 0 with the server up and idle on GPUs 4-7: noop x1, then oracle x1",
+    "busy_check": "every GPU except 4-7 idle before and after each run; GPUs 4-7 are expected to hold the server's memory",
+    "compare_to": "the idle-node Apptainer runs of 2026-11-23: noop 1.005598, oracle 1.211459",
+    "pass_marks": "none; this measures the shift and is reported as is"
+  },
+  "step_2_solver": {
+    "agent": "mini-swe-agent 2.4.6 (/vast/users/qirong.ho/erland/venvs/mini-swe-agent), DefaultAgent, text-based actions (one bash block per reply), LitellmTextbasedModel against the local server",
+    "environment": "mini-swe-agent SingularityEnvironment with the apptainer executable: a writable sandbox copy of the task image, each command `apptainer exec --fakeroot --contain --cleanenv --no-home --writable`, /dev/kfd and /dev/dri bound, a host directory at /tmp, HIP_VISIBLE_DEVICES=0, working directory /app/repo",
+    "prompt": "instruction.md verbatim, followed by mini-swe-agent's action-format rules and how to end (run `bash /opt/loop/submit.sh --finalize`, then `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`); nothing else about the task",
+    "limits": "wall time 14400 s (task.toml agent timeout_sec), 1800 s per command, no step limit, 16 scored submissions (the task's own limit), the run ends early if the context window is exceeded",
+    "runs": 1,
+    "record": "the full trajectory (every model message and command output) and /logs of the sandbox"
+  },
+  "step_3_final_score": {
+    "what": "stop the server; check every GPU idle; if the solver made at least one submission but did not finalize, run `bash /opt/loop/submit.sh --finalize` in the sandbox (the harness's auto-finalize); then `bash /tests/test.sh` (candidate mode) in the solver's sandbox with tests/ at /tests read-only; check every GPU idle after",
+    "zero_submissions": "the working tree is scored as left"
+  },
+  "audit": "grep the trajectory for any read of /opt/loop/private, /tests or the patches; report what is found, do not change the score",
+  "not_a_claim": "one solver run on one task: it shows the setup works and gives one score, not the model's skill",
+  "stop_on": ["a GPU outside 4-7 busy before or after a timing run", "an unexpected execution failure of the setup (not of the solver)"]
+}

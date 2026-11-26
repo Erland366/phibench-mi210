@@ -1,0 +1,16 @@
+{
+  "frozen_on": "2026-11-23, before any verifier run in an Apptainer image",
+  "question": "Does the packaged verifier give the calibrated result when the task image is built and run with Apptainer instead of Enroot?",
+  "approved_by_user": "2026-11-23 (noop and oracle runs on one GPU)",
+  "task": "mi210-jais3-moe-m256, the published package at Erland/phibench-mi210-rows commit 323e515",
+  "image": "Apptainer 1.5.3, built without root (--fakeroot) from a hand translation of the package's environment/Dockerfile onto vllm/vllm-openai-rocm:v0.32.0 pulled from Docker Hub on 2026-11-23 (SIF sha256 45c95432be9e343db077359942cedc41c6170ea71451096368d60067d186948c); every Dockerfile check passed in the build",
+  "where": "auh7-1b-gpu-240 (Slurm job 519331 holds all 8 MI210s), HIP device 0, one run at a time, every GPU idle before and after each run, lock /tmp/phibench-auh7-240-gpus.lock",
+  "run": "apptainer exec --fakeroot --containall --cleanenv --no-home --writable-tmpfs, /dev/kfd and /dev/dri bound (no --rocm: it binds the host's ROCm 7.0 libraries), tests/ at /tests read-only, the task directory at /patches read-only for oracle, a host directory at /logs/verifier, workdir /app/repo, command /app/entrypoint.sh bash /tests/test.sh with KERNELBENCH_VERIFY_MODE set as phibench_mi210.enroot does",
+  "order": ["noop x1", "oracle x1"],
+  "pass_marks": {
+    "noop": "reward 0, no hard fail, speedup within 0.98-1.02 (Enroot gave 1.0075)",
+    "oracle": "no hard fail, speedup within 1% of the range of the 5 Enroot calibration runs (1.1745-1.2051), that is 1.163-1.217"
+  },
+  "not_a_calibration": "the anchor is not changed by these runs; one oracle run cannot measure run-to-run spread",
+  "stop_on": ["a GPU busy before or after a run", "an unexpected execution failure"]
+}

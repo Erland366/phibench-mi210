@@ -1,0 +1,21 @@
+{
+  "frozen_on": "2026-11-25 19:25 UTC, before the solver run on this task",
+  "approved_by_user": "2026-11-25 18:45 UTC, CONTRACT.md revision 1",
+  "question": "Can Qwen3.8-27B with Qwen Code beat the reference on upstream Phi-Bench wro-memory-accounting-sim-coupled, what does it score, and how long does it take?",
+  "task": "local/wro-memory-accounting-sim-coupled-epyc9334 (only tests/verifier-correctness-manifest.json differs from upstream)",
+  "image": "images/wro-memory-accounting-sim-coupled-epyc9334.sif",
+  "where": "as specs/qwen-code-wro-pq-2026-11-25.json (server on GPUs 4-7, task HIP_VISIBLE_DEVICES=-1)",
+  "model_server": "as specs/qwen-code-run-2026-11-24.json",
+  "sampling": "generation_config.json defaults",
+  "harness": "Qwen Code 0.28.4, scripts/row_solver.sh -> scripts/run_qwen_code.sh, settings as the wro-pq run",
+  "prompt": "instruction.md verbatim",
+  "limits": "wall 5400 s, 16 submissions",
+  "final_score": "QUIET=cpu scripts/final_score.sh",
+  "audit": "as specs/qwen-code-wro-pq-2026-11-25.json",
+  "runs": "one: runs/2026-11-25-qwen-code-memory-accounting-sim-1",
+  "not_a_claim": "one run on one task",
+  "stop_on": [
+    "the node busy before or after the final score",
+    "an unexpected failure of the setup"
+  ]
+}

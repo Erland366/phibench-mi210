@@ -1,0 +1,19 @@
+{
+  "frozen_on": "2026-11-25, before the solver run on this task",
+  "approved_by_user": "2026-11-25 (\"let's test another one\"); same harness and limits as specs/qwen-code-wro-pq-2026-11-25.json",
+  "question": "Can Qwen3.8-27B with Qwen Code beat the reference (llama.cpp's hand-written AVX2 Q5_K x Q8_K dot product) on upstream Phi-Bench wro-llamacpp-simd-q5k, what does it score, and how long does it take?",
+  "task": "upstream Phi-Bench 3bcefac, tasks/lh/wro-llamacpp-simd-q5k; package with the local anchor: /vast/users/qirong.ho/erland/phibench-apptainer/local/wro-llamacpp-simd-q5k-epyc9334 (only tests/test.sh's anchor line and tests/verifier-correctness-manifest.json differ from upstream)",
+  "image": "images/wro-llamacpp-simd-q5k-epyc9334.sif: the calibrated image with /opt/verifier-correctness-manifest.json carrying the local anchor (specs/calibration-wro-llamacpp-q5k-2026-11-25.json)",
+  "where": "auh7-1b-gpu-240; the task uses no GPU (HIP_VISIBLE_DEVICES=-1); the model server on GPUs 4-7; lock /tmp/phibench-auh7-240-gpus.lock for the whole session and the final score",
+  "model_server": "as in specs/qwen-code-run-2026-11-24.json (vLLM 0.32.0, TP 4 on GPUs 4-7, context 131072, TRITON_ATTN, reasoning parser qwen3, tool calls qwen3_coder)",
+  "sampling": "generation_config.json defaults (temperature 1.0, top_k 20, top_p 0.95)",
+  "harness": "Qwen Code 0.28.4 via scripts/run_qwen_code.sh, settings as in run 3 and the wro-pq run",
+  "prompt": "instruction.md verbatim (PROMPT_FILE), nothing added",
+  "limits": "wall time 5400 s (the task's agent timeout_sec), 16 submissions",
+  "final_score": "QUIET=cpu scripts/final_score.sh, as for wro-pq",
+  "audit": "any read of /opt/loop/private, /opt/loop/score_engine.sh, /opt/loop/sanitize_feedback.py, /tests or the patches; any banned token; any network command",
+  "caveat_known_before": "the reference is upstream llama.cpp's public AVX2 kernel, very likely in the model's training data; a good score may reflect recall as much as optimization. The CPU also has AVX-512, which instruction.md does not mention",
+  "runs": "one: runs/2026-11-25-qwen-code-wro-q5k-1",
+  "not_a_claim": "one run on one task",
+  "stop_on": ["the node busy before or after the final score", "an unexpected failure of the setup"]
+}
