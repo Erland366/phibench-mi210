@@ -1319,32 +1319,72 @@ def _git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(b'blob %d\0' % len(data) + data).hexdigest()
 
 
-def upload(out: Path, repo: str, message: str) -> dict:
-    """Upload the dataset folder to its private Hugging Face repo, then check that every local file is on Hugging Face
-    with the same content and that the repo is still private. Generated files of the earlier layout are removed from
-    the repo. Needs huggingface_hub (run with: uv run --with huggingface_hub ...) and the machine's default Hugging Face
-    login (`hf auth login`); the result names the account it uploaded as."""
+BASE_FILE = '.hf-base.json'  # in a dataset folder: the Hugging Face commit it was downloaded from (never uploaded)
+
+
+def _hf_api(repo: str):
     try:
         from huggingface_hub import HfApi
     except ImportError as e:
-        raise RecordError('upload needs huggingface_hub: uv run --with huggingface_hub python -m '
-                          'phibench_mi210.traces upload ...') from e
-    if not (out / 'index.jsonl').is_file() or not (out / 'records').is_dir():
-        raise RecordError(f'{out} is not a trace dataset folder (no index.jsonl or records/)')
+        raise RecordError('this needs huggingface_hub: uv run --with huggingface_hub python -m '
+                          'phibench_mi210.traces ...') from e
     api = HfApi()  # this machine's default Hugging Face login (`hf auth login`)
     try:
         account = api.whoami()['name']
     except Exception as e:
-        raise RecordError('upload needs a Hugging Face login on this machine: run `hf auth login` with an account '
-                          f'that can write to {repo}') from e
-    if not api.dataset_info(repo).private:
+        raise RecordError('this needs a Hugging Face login on this machine: run `hf auth login` with an account '
+                          f'that can read (download) or write (upload) {repo}') from e
+    info = api.dataset_info(repo)
+    if not info.private:
         raise RecordError(f'refused: {repo} is not private (ADR 0009: traces stay private)')
+    return api, account, info
+
+
+def download(out: Path, repo: str) -> dict:
+    """Download the dataset into a new folder, and note there which Hugging Face commit it came from, so that an upload
+    from this folder can tell whether someone else uploaded in between."""
+    if out.exists():
+        raise RecordError(f'{out} exists; download into a new folder')
+    from huggingface_hub import snapshot_download
+    api, account, info = _hf_api(repo)
+    snapshot_download(repo_id=repo, repo_type='dataset', local_dir=str(out), revision=info.sha)
+    shutil.rmtree(out / '.cache', ignore_errors=True)
+    (out / BASE_FILE).write_text(json.dumps({'repo': repo, 'sha': info.sha, 'account': account,
+                                             'downloaded_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')}) + '\n')
+    return {'account': account, 'sha': info.sha, 'records': len(list((out / 'records').glob('*/record.json')))}
+
+
+def upload(out: Path, repo: str, message: str) -> dict:
+    """Upload the dataset folder to its private Hugging Face repo, then check that every local file is on Hugging Face
+    with the same content and that the repo is still private. The folder must come from `download`, and nobody may have
+    uploaded since: index.jsonl and the viewer file are rebuilt from the local records, so an older copy would drop
+    other people's records from them. Generated files of the earlier layout are removed from the repo. Needs
+    huggingface_hub (run with: uv run --with huggingface_hub ...) and the machine's default Hugging Face login
+    (`hf auth login`); the result names the account it uploaded as."""
+    if not (out / 'index.jsonl').is_file() or not (out / 'records').is_dir():
+        raise RecordError(f'{out} is not a trace dataset folder (no index.jsonl or records/)')
+    base_path = out / BASE_FILE
+    if not base_path.is_file():
+        raise RecordError(f'{out} has no {BASE_FILE}, so it is not known which Hugging Face commit it holds; download a '
+                          'fresh copy with "download", convert your runs into it, and upload that')
+    base = json.loads(base_path.read_text())
+    if base.get('repo') != repo:
+        raise RecordError(f'{out} was downloaded from {base.get("repo")}, not {repo}')
+    api, account, info = _hf_api(repo)
+    if info.sha != base['sha']:
+        raise RecordError(f'{repo} changed since {out} was downloaded (it was {base["sha"][:8]}, it is now '
+                          f'{info.sha[:8]}); download a fresh copy, convert your runs into it, and upload that')
+    # parent_commit makes Hugging Face itself refuse the commit if someone uploads between the check above and this one
     commit = api.upload_folder(folder_path=str(out), repo_id=repo, repo_type='dataset', commit_message=message,
-                               ignore_patterns=['.cache/**', '**/.*.staging/**', '**/.chats.new/**'],
+                               parent_commit=base['sha'],
+                               ignore_patterns=['.cache/**', '**/.*.staging/**', '**/.chats.new/**', BASE_FILE],
                                delete_patterns=['records/*/conversation/messages.jsonl',
                                                 'records/*/conversation/agents/*', 'viewer/runs.jsonl'])
+    new_sha = getattr(commit, 'oid', None) or api.dataset_info(repo).sha
+    base_path.write_text(json.dumps({**base, 'sha': new_sha, 'uploaded_by': account,
+                                     'uploaded_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')}) + '\n')
     local = {p.relative_to(out).as_posix(): p for p in out.rglob('*')
-             if p.is_file() and '.cache' not in p.relative_to(out).parts}
+             if p.is_file() and '.cache' not in p.relative_to(out).parts and p.name != BASE_FILE}
     remote = {e.path: e for e in api.list_repo_tree(repo, repo_type='dataset', recursive=True, expand=True)
               if e.__class__.__name__ == 'RepoFile'}
     bad = []
@@ -1369,6 +1409,9 @@ def main(argv=None) -> int:
     s = sub.add_parser('session-requests', help='list the requests you typed in a Claude Code session, with the '
                                                 'uuid to start a slice at')
     s.add_argument('--session', type=Path, required=True, help='~/.claude/projects/<folder>/<session>.jsonl')
+    d = sub.add_parser('download', help='download the dataset into a new folder, to convert your runs into')
+    d.add_argument('--out', type=Path, required=True, help='a new folder')
+    d.add_argument('--repo', default='Erland/rsi-traces')
     u = sub.add_parser('upload', help='upload the dataset folder to its private Hugging Face repo and check it')
     u.add_argument('--out', type=Path, required=True, help='the trace dataset folder')
     u.add_argument('--repo', default='Erland/rsi-traces')
@@ -1386,6 +1429,10 @@ def main(argv=None) -> int:
             for r in session_requests(args.session):
                 text = ' '.join(r['text'].split())
                 print(f'line {r["line"]:>6}  {r["timestamp"]}  {r["uuid"]}  {text[:100]}')
+            return 0
+        if args.cmd == 'download':
+            r = download(args.out, args.repo)
+            print(f'downloaded {r["records"]} records of {args.repo} at {r["sha"][:8]} as {r["account"]} into {args.out}')
             return 0
         if args.cmd == 'upload':
             r = upload(args.out, args.repo, args.message)

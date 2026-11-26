@@ -13,15 +13,14 @@ QWEN = {'name': 'Qwen3.8-27B', 'precision': 'bf16',
         'served_by': {'server': 'vLLM', 'version': '0.32.0', 'settings': 'tensor parallel 4'}}
 
 
-def test_upload_names_the_login_and_refuses_without_one(tmp_path, monkeypatch):
+@pytest.fixture
+def fake_hf(monkeypatch):
+    """A stand-in for huggingface_hub: one private dataset whose head commit the test can move."""
     import sys
     import types
-    out = tmp_path / 'ds'
-    (out / 'records').mkdir(parents=True)
-    (out / 'index.jsonl').write_bytes(b'')
 
     class Api:
-        logged_in = True
+        logged_in, head, uploads = True, 'aaa', []
 
         def whoami(self):
             if not Api.logged_in:
@@ -29,18 +28,56 @@ def test_upload_names_the_login_and_refuses_without_one(tmp_path, monkeypatch):
             return {'name': 'someone'}
 
         def dataset_info(self, repo):
-            return types.SimpleNamespace(private=True, sha='abc')
+            return types.SimpleNamespace(private=True, sha=Api.head)
 
         def upload_folder(self, **kw):
-            return types.SimpleNamespace(oid='c1')
+            Api.uploads.append(kw)
+            Api.head = 'bbb'
+            return types.SimpleNamespace(oid='bbb')
 
         def list_repo_tree(self, *a, **kw):
             return []
 
-    monkeypatch.setitem(sys.modules, 'huggingface_hub', types.SimpleNamespace(HfApi=Api))
+    def snapshot_download(repo_id, repo_type, local_dir, revision):
+        d = Path(local_dir)
+        (d / 'records').mkdir(parents=True)
+        (d / 'index.jsonl').write_bytes(b'')
+        (d / '.cache').mkdir()
+
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', types.SimpleNamespace(HfApi=Api, snapshot_download=snapshot_download))
+    return Api
+
+
+def test_download_notes_the_commit_and_upload_moves_it_on(tmp_path, fake_hf):
+    out = tmp_path / 'ds'
+    assert traces.download(out, 'Erland/rsi-traces')['sha'] == 'aaa'
+    assert not (out / '.cache').exists()
     r = traces.upload(out, 'Erland/rsi-traces', 'msg')
-    assert r['account'] == 'someone' and r['commit'] == 'c1'
-    Api.logged_in = False
+    assert r['account'] == 'someone' and r['commit'] == 'bbb'
+    sent = fake_hf.uploads[-1]
+    assert sent['parent_commit'] == 'aaa' and traces.BASE_FILE in sent['ignore_patterns']
+    assert json.loads((out / traces.BASE_FILE).read_text())['sha'] == 'bbb'  # a second upload from here is allowed
+    traces.upload(out, 'Erland/rsi-traces', 'msg 2')
+    with pytest.raises(traces.RecordError, match='exists'):
+        traces.download(out, 'Erland/rsi-traces')
+
+
+def test_upload_refuses_a_copy_that_is_out_of_date_or_not_downloaded(tmp_path, fake_hf):
+    out = tmp_path / 'ds'
+    traces.download(out, 'Erland/rsi-traces')
+    fake_hf.head = 'ccc'  # someone else uploaded after this copy was downloaded
+    with pytest.raises(traces.RecordError, match='changed since'):
+        traces.upload(out, 'Erland/rsi-traces', 'msg')
+    (out / traces.BASE_FILE).unlink()
+    with pytest.raises(traces.RecordError, match='download a fresh copy'):
+        traces.upload(out, 'Erland/rsi-traces', 'msg')
+    assert fake_hf.uploads == []
+
+
+def test_upload_refuses_without_a_login(tmp_path, fake_hf):
+    out = tmp_path / 'ds'
+    traces.download(out, 'Erland/rsi-traces')
+    fake_hf.logged_in = False
     with pytest.raises(traces.RecordError, match='hf auth login'):
         traces.upload(out, 'Erland/rsi-traces', 'msg')
 
