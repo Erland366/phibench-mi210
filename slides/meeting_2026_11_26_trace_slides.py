@@ -11,6 +11,16 @@ import json, sys
 
 EMU = 914400
 TABLES = {
+    'm26_setup': dict(
+        cols=['Part', 'What we used'], widths=[2.2, 7.1],
+        rows=[['Model', 'Qwen3.8-27B, bf16'],
+              ['Serving', 'vLLM 0.32.0 on 4 MI210 (tensor parallel 4), 131k-token context'],
+              ['Agent harness', 'mini-swe-agent 2.4.6 at first, then Qwen Code 0.28.4'],
+              ['Tasks', 'm256 (our MI210 row) and 5 upstream Φ-Bench CPU tasks'],
+              ['Sandbox', "Apptainer container from the task's image, no network"],
+              ['Session', '90 min and up to 16 submissions per CPU task; 4 h on m256'],
+              ['Scoring', "The task's own verifier; CPU tasks on an AMD EPYC 9334"]],
+        mark=set()),
     'm26_sop': dict(
         cols=['Step', 'What the contributor does'], widths=[3.3, 6.0],
         rows=[['1. Pick the work', 'Accepted work that a program can check in minutes'],
@@ -46,7 +56,7 @@ TABLES = {
               ['All', '15', '4', '10', '1']],
         mark={(r, 2) for r in range(4)}),
 }
-LINE_Y = {'m26_sop': 4.45, 'm26_trfmt': 4.55, 'm26_trsheet': 5.0, 'm26_trset': 3.35}
+LINE_Y = {'m26_setup': 5.0, 'm26_sop': 4.45, 'm26_trfmt': 4.55, 'm26_trsheet': 5.0, 'm26_trset': 3.35}
 YELLOW = {'red': 1.0, 'green': 0xF2 / 255, 'blue': 0x7A / 255}
 
 reqs = []
