@@ -111,21 +111,6 @@ class RecordBuilder:
         shutil.copy2(src, dest)
         self.files.append({'path': dest_rel, 'source': str(src), 'sha256': sha256(dest), 'bytes': dest.stat().st_size})
 
-    def copy_transformed(self, src: Path, dest_rel: str, fn, what: str) -> int:
-        """Store a changed copy of an original file (for example a Claude trace without its thinking blocks): the
-        secret check runs on the original, and provenance keeps both hashes and what was changed."""
-        if not src.is_file():
-            raise RecordError(f'missing file {src}')
-        hits = find_secrets(src)
-        if hits:
-            raise RecordError(f'{src} matches {hits}; blank the secret, note it under "scrub" in the sheet, convert again')
-        dest = self.stage / dest_rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        n = fn(src, dest)
-        self.files.append({'path': dest_rel, 'source': str(src), 'source_sha256': sha256(src),
-                           'sha256': sha256(dest), 'bytes': dest.stat().st_size, 'changed': what})
-        return n
-
     def copy_tree(self, src: Path, dest_rel: str) -> None:
         if not src.is_dir():
             raise RecordError(f'missing folder {src}')
@@ -624,23 +609,20 @@ def convert_mini_swe_agent(entry: dict, builder: 'RecordBuilder', record: dict) 
 THINKING_BLOCKS = ('thinking', 'redacted_thinking')
 
 
-def strip_thinking(src: Path, dest: Path) -> int:
-    """Copy a Claude Code JSONL file without its thinking blocks (ADR 0008); every other field stays as recorded.
-    Returns the number of blocks removed."""
-    removed = 0
-    with open(src) as fin, open(dest, 'w') as fout:
-        for line in fin:
-            if not line.strip():
-                fout.write(line)
-                continue
-            obj = json.loads(line)
-            msg = obj.get('message')
-            if isinstance(msg, dict) and isinstance(msg.get('content'), list):
-                kept = [b for b in msg['content'] if not (isinstance(b, dict) and b.get('type') in THINKING_BLOCKS)]
-                removed += len(msg['content']) - len(kept)
-                msg['content'] = kept
-            fout.write(json.dumps(obj, ensure_ascii=False) + '\n')
-    return removed
+def count_thinking(path: Path) -> dict:
+    """How many thinking blocks a Claude Code JSONL file holds, and how many of them carry text (Claude Code may
+    store a thinking block with an empty text and only a signature)."""
+    blocks = with_text = 0
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        msg = json.loads(line).get('message')
+        if isinstance(msg, dict) and isinstance(msg.get('content'), list):
+            for b in msg['content']:
+                if isinstance(b, dict) and b.get('type') in THINKING_BLOCKS:
+                    blocks += 1
+                    with_text += bool(b.get('thinking'))
+    return {'thinking_blocks': blocks, 'thinking_blocks_with_text': with_text}
 
 
 def _tool_text(content) -> str:
@@ -651,7 +633,8 @@ def _tool_text(content) -> str:
 
 def messages_from_claude_code(path: Path) -> list[dict]:
     """One Claude Code conversation as messages: an assistant reply split over several lines (same message id) is
-    joined; tool results become tool messages; thinking and the harness's own bookkeeping lines are left out."""
+    joined; tool results become tool messages; thinking text becomes the reply's reasoning; the harness's own
+    bookkeeping lines are left out."""
     rows, current = [], None
     for line in path.read_text().splitlines():
         if not line.strip():
@@ -669,6 +652,9 @@ def messages_from_claude_code(path: Path) -> list[dict]:
             for b in content if isinstance(content, list) else [{'type': 'text', 'text': content or ''}]:
                 if b.get('type') == 'text':
                     current['content'] = (current['content'] + '\n' if current['content'] else '') + b.get('text', '')
+                elif b.get('type') == 'thinking' and b.get('thinking'):
+                    prev = current.get('reasoning')
+                    current['reasoning'] = (prev + '\n' if prev else '') + b['thinking']
                 elif b.get('type') == 'tool_use':
                     current['tool_calls'].append({'id': b.get('id'), 'type': 'function', 'function': {
                         'name': b.get('name'), 'arguments': json.dumps(b.get('input'), ensure_ascii=False)}})
@@ -791,15 +777,16 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
     for name in ('outcome.json', 'receipt.json', 'driver-spec.json', 'driver-result.json', 'container.log',
                  'transcript.jsonl'):
         _optional(builder, run / name, f'harness/{name}')
-    # the conversations: every agent's Claude Code file, thinking removed, plus the readable copies
+    # the conversations: every agent's Claude Code file as recorded, thinking included, plus the readable copies
     claude_root = run / 'home' / '.claude' / 'projects'
     files = sorted(claude_root.rglob('*.jsonl')) if claude_root.is_dir() else []
     if not files:
         raise RecordError(f'{entry["record_id"]}: no Claude Code conversations under {claude_root}')
-    removed = 0
+    thinking = {'thinking_blocks': 0, 'thinking_blocks_with_text': 0}
     for f in files:
-        removed += builder.copy_transformed(f, f'conversation/raw/claude/{f.relative_to(claude_root).as_posix()}',
-                                            strip_thinking, 'thinking blocks removed')
+        builder.copy(f, f'conversation/raw/claude/{f.relative_to(claude_root).as_posix()}')
+        for k, v in count_thinking(f).items():
+            thinking[k] += v
     _optional(builder, run / 'chat', 'conversation/readable')
     agents, all_rows = [], []
     for a in geak_agents(run):
@@ -832,7 +819,7 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
         'training_unit': 'conversation/agents/<nn>-<role>.jsonl, one conversation per agent; messages.jsonl lists '
                          'the non-synthetic agents one after another in the order they started, not as one dialogue',
         'synthetic_agents': sum(a['synthetic'] for a in agents),
-        'reasoning_included': False, 'thinking_dropped': True, 'thinking_blocks_removed': removed}
+        'reasoning_included': True, 'thinking_dropped': False, **thinking}
     record['model']['transcript_models'] = outcome.get('transcript_models')
     record['outcome']['harness_status'] = outcome.get('status')
     record['time'] = {'seconds': outcome.get('seconds')}

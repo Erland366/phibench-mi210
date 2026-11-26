@@ -12,8 +12,8 @@ task, from its prompt to its end. The decisions behind it are ADR 0002 (private,
 
 | Source (`source`) | What one run is | Main conversation file |
 |---|---|---|
-| `claude_code_session` | the slice of a person's Claude Code session that did the work (SOP step 6) | the session JSONL slice, thinking blocks removed |
-| `geak_run` | one whole GEAK run, all its agents (ADR 0010) | every agent's Claude Code JSONL, thinking blocks removed |
+| `claude_code_session` | the slice of a person's Claude Code session that did the work (SOP step 6) | the session JSONL slice, thinking included |
+| `geak_run` | one whole GEAK run, all its agents (ADR 0010) | every agent's Claude Code JSONL as recorded, thinking included |
 | `codex_session` | the slice of a person's Codex session (not read yet) | the session JSONL slice, reasoning removed |
 | `open_model_run` | one run of an open model through a harness (Qwen Code, mini-swe-agent) | the raw model calls (`logs/agent/openai/*.json`) |
 
@@ -98,7 +98,7 @@ stream (`stream.jsonl`), the harness's own chat recording and its home folder fi
 For a GEAK run the record holds, in place of the open-model files:
 
 ```
-  conversation/raw/claude/...        every agent's Claude Code JSONL, thinking blocks removed, all else as recorded
+  conversation/raw/claude/...        every agent's Claude Code JSONL, byte copies, thinking included
   conversation/readable/             GEAK's readable copy of each agent's chat (chat/*.md and its index)
   conversation/agents/<nn>-<role>.jsonl   each agent's messages, in the order the run started them
   conversation/messages.jsonl        all agents' messages, each line naming its agent
@@ -142,7 +142,7 @@ what the final score measured.
 | `time` | started, finished, wall-clock limit |
 | `outcome` | `label` (`successful`, `unsuccessful`, `invalid` or `unscored`), `reward`, `speedup`, `correctness_ok`, `hard_fail_reasons`, `invalid_reason`, the harness exit code, whether the final tree was the winning submission or the starting code, the path of the counted verifier output, and `invalid_scores` (thrown-away scores with their reasons) |
 | `submissions` | per submission: number, speedup, reward, correctness, hard-fail reasons, diff path, and `timing_clean` (false when the machine was shared during that timing, with the reason) |
-| `conversation` | which raw files are the main copy, whether reasoning is included, whether thinking was dropped, number of compactions |
+| `conversation` | which raw files are the main copy, whether reasoning is included, whether thinking was dropped (never, since 2026-11-26), for Claude traces the number of thinking blocks and how many hold text, number of compactions |
 | `provenance` | machine, original paths, date copied, SHA-256 of every copied file |
 | `scrub` | whether the scrub check passed, by whom, when, and anything it changed |
 
@@ -161,7 +161,7 @@ is one message with exactly these fields, in this order:
 | `turn` | its position in the file, from 0 |
 | `role` | `system`, `user`, `assistant`, `tool`, or `event` for something the harness did (see below) |
 | `content` | plain text (a message sent as several text parts is joined with newlines; `extra.content_parts` says how many) |
-| `reasoning` | the model's own reasoning, for open models; `null` for Claude and Codex, whose thinking is dropped |
+| `reasoning` | the model's own reasoning: an open model's reasoning, or the text of Claude's thinking blocks; `null` when there is none. Claude Code can store a thinking block with an empty text and only a signature, as in every block of our GEAK runs, so their `reasoning` is `null` although the blocks are kept in the raw files |
 | `tool_calls` | for an assistant message, the tools it called: `[{"id", "type": "function", "function": {"name", "arguments": <JSON text>}}]` |
 | `tool_call_id` | for a tool message, which call it answers |
 | `agent` | in a GEAK run, the agent it belongs to (for example `eng r1_d0:compute`); `null` otherwise |

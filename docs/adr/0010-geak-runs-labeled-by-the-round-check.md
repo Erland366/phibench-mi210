@@ -23,8 +23,8 @@ it was given, even when its whole result failed it (the first MoE run's whole re
 conversation would otherwise be both a successful and an unsuccessful example. The whole result is kept in each
 record as context (`outcome.run_result`), never as the label. Because that conversation worked on the whole layer
 and never saw the row's instruction, each such record says so (`task.prompt_vs_task` = `different problem`, user,
-2026-11-26), so that whoever trains can leave it out. Claude's thinking blocks are dropped, as for every
-Claude trace.
+2026-11-26), so that whoever trains can leave it out. Claude's thinking blocks are kept, as for every
+Claude trace (ADR 0008, changed by the user on 2026-11-26); in these runs all of them have an empty text.
 
 ## Considered options
 

@@ -13,7 +13,9 @@ never started). A run not scored yet is unscored until it is. Every record also 
 hard-fail reasons. Choosing which tasks are for training and which for evaluation is the user's, later; for now
 every run is stored with its task id.
 
-For open models the model's own reasoning is kept; for Claude traces thinking blocks are still dropped. The main
+The model's own reasoning is kept for every source: an open model's reasoning, and Claude's and Codex's thinking
+blocks (user, 2026-11-26; the first version of this decision dropped Claude's thinking, which was the agent's
+default and never the user's choice, and the 7 GEAK records were converted again with it). The main
 copy of a conversation is the raw model calls (each request and response as sent), because a harness that compacts
 its history rewrites what its own log shows; the harness's log is kept as is, and a flat message list is generated
 from the raw calls. Raw files are never edited.

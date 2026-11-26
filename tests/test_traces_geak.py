@@ -29,11 +29,13 @@ AGENT_LINES = [
     {'type': 'user', 'message': {'role': 'user', 'content': [
         {'type': 'tool_result', 'tool_use_id': 'tu1', 'content': 'def k(): ...'}]}},
     {'type': 'assistant', 'message': {'id': 'm2', 'role': 'assistant', 'model': 'claude-opus-5-5',
-                                      'content': [{'type': 'text', 'text': 'Done.'}]}},
+                                      'content': [{'type': 'thinking', 'thinking': 'It looks finished.',
+                                                   'signature': 'sig2'},
+                                                  {'type': 'text', 'text': 'Done.'}]}},
 ]
 
 
-def test_claude_code_messages_join_split_replies_and_skip_thinking(tmp_path):
+def test_claude_code_messages_join_split_replies_and_keep_thinking(tmp_path):
     f = tmp_path / 'a.jsonl'
     jl(f, AGENT_LINES)
     rows = traces.messages_from_claude_code(f)
@@ -42,16 +44,14 @@ def test_claude_code_messages_join_split_replies_and_skip_thinking(tmp_path):
     assert json.loads(rows[1]['tool_calls'][0]['function']['arguments']) == {'file_path': 'k.py'}
     assert rows[2] == {'role': 'tool', 'tool_call_id': 'tu1', 'content': 'def k(): ...', 'is_error': False,
                        'timestamp': None}
-    assert not any('thinking' in json.dumps(r) for r in rows)
+    assert 'reasoning' not in rows[1]  # its thinking block was stored with an empty text
+    assert rows[3]['reasoning'] == 'It looks finished.' and rows[3]['content'] == 'Done.'
 
 
-def test_strip_thinking_keeps_everything_else(tmp_path):
-    src, dest = tmp_path / 'a.jsonl', tmp_path / 'b.jsonl'
-    jl(src, AGENT_LINES)
-    assert traces.strip_thinking(src, dest) == 1
-    out = [json.loads(l) for l in dest.read_text().splitlines()]
-    assert len(out) == len(AGENT_LINES)
-    assert out[1]['message']['content'] == [] and out[2] == AGENT_LINES[2] and out[4] == AGENT_LINES[4]
+def test_count_thinking_counts_blocks_and_those_with_text(tmp_path):
+    f = tmp_path / 'a.jsonl'
+    jl(f, AGENT_LINES)
+    assert traces.count_thinking(f) == {'thinking_blocks': 2, 'thinking_blocks_with_text': 1}
 
 
 @pytest.fixture
@@ -111,7 +111,9 @@ def test_geak_run_with_its_row_is_successful(tmp_path, geak):
     assert rec['outcome']['label'] == 'successful' and rec['outcome']['speedup'] == 1.1306
     assert rec['outcome']['label_rule'].startswith('Round check') and rec['outcome']['reward'] is None
     assert [a['role'] for a in rec['conversation']['agents']] == ['top-level agent', 'eng r1_d0:compute']
-    assert rec['conversation']['thinking_blocks_removed'] == 1
+    assert rec['conversation']['thinking_dropped'] is False and rec['conversation']['reasoning_included'] is True
+    assert rec['conversation']['thinking_blocks'] == 3  # 1 in the top-level agent, 2 in the engineer
+    assert rec['conversation']['thinking_blocks_with_text'] == 2
     assert rec['submissions'][0]['geak_reported_speedup'] == 1.0149
     assert (d / 'harness/geak/round_1/engineer_0/best_patch.diff').is_file()
     assert not (d / 'harness/geak/round_1/engineer_0/workspace').exists()
@@ -119,13 +121,17 @@ def test_geak_run_with_its_row_is_successful(tmp_path, geak):
     assert (d / 'verifier/round-check/verdict.json').is_file()
     assert (d / 'verifier/jais3-moe-v2-v032-01.round-check-current.measure.log').is_file()
     raw = list((d / 'conversation/raw/claude').rglob('*.jsonl'))
-    assert len(raw) == 2 and not any('"thinking"' in f.read_text() for f in raw)
-    changed = {f['path'].rsplit('/', 1)[-1]: f for f in rec['provenance']['files'] if f.get('changed')}
-    assert set(changed) == {'sess.jsonl', 'agent-a1.jsonl'}
-    assert changed['agent-a1.jsonl']['source_sha256'] != changed['agent-a1.jsonl']['sha256']  # its thinking went
-    assert changed['sess.jsonl']['source_sha256'] == changed['sess.jsonl']['sha256']  # it had none
+    assert len(raw) == 2  # byte copies of the originals, thinking included
+    originals = {p.name: p for p in run_files(geak[0])}
+    assert all(f.read_bytes() == originals[f.name].read_bytes() for f in raw)
+    assert not any(f.get('changed') for f in rec['provenance']['files'])
     msgs = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
     assert {m['agent'] for m in msgs} == {'top-level agent', 'eng r1_d0:compute'}
+    assert 'It looks finished.' in [m['reasoning'] for m in msgs]
+
+
+def run_files(run):
+    return list((run / 'home/.claude/projects').rglob('*.jsonl'))
 
 
 def test_passed_run_without_its_row_is_refused(tmp_path, geak):

@@ -33,8 +33,8 @@ TABLES = {
         mark=set()),
     'm26_trfmt': dict(
         cols=['Source', 'Conversation kept', 'Label from'], widths=[2.6, 3.6, 3.1],
-        rows=[['Own Claude Code or Codex session', 'Session files, thinking removed', 'Its result is the checked reference, so successful'],
-              ['GEAK run (Claude agents)', "Every agent's session, thinking removed", 'Round check, correct and at least 1.1×'],
+        rows=[['Own Claude Code or Codex session', 'Session files as recorded, with thinking', 'Its result is the checked reference, so successful'],
+              ['GEAK run (Claude agents)', "Every agent's session, with thinking", 'Round check, correct and at least 1.1×'],
               ['Qwen Code run', 'Every model call as sent, with reasoning', 'Task verifier, reward above 0'],
               ['mini-swe-agent run', 'Its trajectory, with reasoning', 'Task verifier, reward above 0']],
         mark={(r, 2) for r in range(4)}),
