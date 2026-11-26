@@ -1,8 +1,8 @@
 # How to turn your agent work into a benchmark task
 
-This procedure turns a piece of systems work that you finished with a coding agent (Claude Code, Codex or a similar agent) into a Φ-Bench task and a trace. The **task** is a package, with its image, that another model can be given and scored on. The **trace** is the part of your conversation with the agent in which the work was done, and it is kept privately as training data.
+This procedure turns a piece of systems work that you finished with a coding agent (Claude Code, Codex or a similar agent) into a Φ-Bench task and a trace. The **task** is a package, with its image, that another model can be given and scored on. A **trace** is the recorded conversation of one run on the task: first your own run with the agent, and later the runs of other agents and models given the task. Every run's trace is kept privately as training data, labeled by the task's verifier.
 
-The procedure works for any systems work that a program can check, such as a kernel made faster, a serving bug fixed or a feature added. It ends when your task passes its checks and your trace is stored. Evaluating models on the tasks and training on the traces are separate work.
+The procedure works for any systems work that a program can check, such as a kernel made faster, a serving bug fixed or a feature added. It ends when your task passes its checks and your trace is stored. Running models on the tasks and training on the traces are separate work, but every run on a task is stored the same way (step 6).
 
 Each step below ends with an example from a finished task, `mi210-jais3-moe-m256`, a speed task on AMD Instinct MI210 that is published in the Hugging Face dataset `Erland/phibench-mi210-rows`. Its source is a GEAK agent run rather than a conversation with Claude Code, and the examples say where that changed a step.
 
@@ -11,7 +11,7 @@ Each step below ends with an example from a finished task, `mi210-jais3-moe-m256
 - Finished work in a public repository, with the commit before your change and the commit after it.
 - A check that separates a correct change from a wrong one, such as tests that fail before the change and pass after it, or a timing that shows the speedup.
 - The stored conversation in which you and the agent did the work. Claude Code stores each session as a JSONL file under `~/.claude/projects/<folder>/`.
-- Docker with `buildx`. On a machine without Docker, use our Enroot builder (`enroot.py build`).
+- Docker with `buildx`. On a machine without Docker, build the same steps with our Enroot builder (`enroot.py build`) or as an Apptainer image translated from the Dockerfile.
 - For a speed task, the hardware that the task will state, with no other jobs running on it while you measure.
 
 ## Step 1. Pick the work and decide its kind
@@ -120,16 +120,20 @@ Run the too-easy search (`table_search.py`). If a search that only tries values,
 
 **Files to look at:** [`oracle.patch`](https://huggingface.co/datasets/Erland/phibench-mi210-rows/blob/main/tasks/lh/mi210-jais3-moe-m256/oracle.patch), [`negative.patch`](https://huggingface.co/datasets/Erland/phibench-mi210-rows/blob/main/tasks/lh/mi210-jais3-moe-m256/negative.patch), [`solution/solve.sh`](https://huggingface.co/datasets/Erland/phibench-mi210-rows/blob/main/tasks/lh/mi210-jais3-moe-m256/solution/solve.sh), [`tests/ref_speedup.txt`](https://huggingface.co/datasets/Erland/phibench-mi210-rows/blob/main/tasks/lh/mi210-jais3-moe-m256/tests/ref_speedup.txt) and [`tests/ref_speedup.caveat.md`](https://huggingface.co/datasets/Erland/phibench-mi210-rows/blob/main/tasks/lh/mi210-jais3-moe-m256/tests/ref_speedup.caveat.md).
 
-## Step 6. Cut, clean and store the trace
+## Step 6. Store the trace of every run
 
-- **Cut the slice.** One session usually contains several pieces of work. Mark the slice from your request for this work to the accepted solution, and keep the failed attempts inside it, because the ML team wants the failed attempts that led to the solution and not only the final answer. Keep only slices that end in an accepted solution.
-- **Clean the slice.** Remove the agent's thinking blocks. Keep the messages, tool calls and tool outputs in their original JSONL form.
-- **Run the scrub check.** The slice must contain no secrets, tokens, passwords, proxy settings, private paths, node names, account names or other people's data. Check the tool outputs most carefully, because these items appear there most often.
-- **Store the slice** in the group's private trace dataset, with a small metadata file that records the task `id`, the agent and model, the date and the session file or files. Never put the trace in the task package.
+Store a trace for every run on the task, not only the one that solved it: your own session, and every later run of another agent or model on the task. One run is one record.
 
-**Tool not ready.** The slice cutter and the scrub check do not exist yet. Until they do, cut the slice by hand, search it for the items listed in the scrub check, and ask before uploading.
+- **Label the run.** The task's verifier sets the label, with Φ-Bench's definition, never the agent's own report. A run is successful when its final reward is above 0, unsuccessful when it is 0, and invalid when it was not a fair attempt, such as a setup error, a busy machine during timing or an agent that never started. A run the verifier has not scored yet waits as unscored.
+- **Cut the slice.** For your own session: one session usually contains several pieces of work. Mark the slice from your request for this work to its end, and keep the failed attempts inside it, because the ML team wants the path to the solution and not only the final answer.
+- **Keep the conversation as it was recorded.** For an open model, the main copy is the raw model calls, each request and response as sent, because they show what the model saw after the harness compacted its history. Keep the model's reasoning, and keep the harness's own log next to the calls. For Claude, keep the messages, tool calls and tool outputs in their original JSONL form and remove the thinking blocks. Never edit the raw files.
+- **Keep the code.** Save the run's final patch and each submission's diff and score. If a run's final code was not saved, its record has no patch; do not rebuild one.
+- **Run the scrub check.** The trace must contain no secrets, tokens, passwords, proxy settings, private paths, node names, account names or other people's data. Check the tool outputs most carefully, because these items appear there most often.
+- **Store the record** in the group's private trace dataset, with a small metadata file that records the task `id`, the source, the agent or harness and its version, the model and how it was served, the hardware, the date, the label with its reward, speedup, anchor and hard-fail reasons, and the files. Never put a trace in the task package.
 
-**Example.** Not done yet for this task. The GEAK run's conversation is stored with the run, but it has not been cut, cleaned or uploaded, because the trace dataset does not exist yet.
+**Tool not ready.** The record format, the slice cutter, the converter and the scrub check do not exist yet. Until they do, cut and store by hand, search each trace for the items listed in the scrub check, and ask before uploading.
+
+**Example.** Nothing is stored yet, because the trace dataset does not exist. Three runs of Qwen3.8-27B have been made on this task. Two reached 1.143× (with mini-swe-agent) and 1.137× (with Qwen Code) against the anchor of 1.201437, so both are unsuccessful; the third had a setup error and is invalid. The GEAK run that the task came from is stored with its full conversation, one file per agent, and each of its engineer attempts will become one more record once the task's verifier has scored it.
 
 ## Step 7. Submit for review
 

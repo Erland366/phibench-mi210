@@ -48,6 +48,18 @@ session usually holds many pieces of work, so a trace is a slice, not a whole se
 One try within a trace at a solution, ending when it is checked (it fails, or it is accepted).
 _Avoid_: round (taken: the Round check is GEAK's independent measurement), iteration, try
 
+**Run**:
+One session of an agent working on one task, from its prompt to its end; the unit of one trace record. A run may
+make several submissions, which are kept inside it.
+_Avoid_: trial (fine in speech, but write run), episode, rollout
+
+**Outcome**:
+The label of one run, from the task's own verifier by Φ-Bench's definition: **successful** when the final reward is
+above 0 (a speed task beats the anchor, a pass/fail task passes its tests), **unsuccessful** when it is 0, and
+**invalid** when the run was not a fair attempt (setup error, a busy machine during timing, the agent never
+started). A run the verifier has not scored yet is **unscored**, a waiting state, not a label.
+_Avoid_: failed (write unsuccessful), pass (ambiguous with the correctness check), solved, the agent's own "status"
+
 **Scrub check**:
 The automatic check that a trace slice holds no secrets, proxy settings, private paths or node names before it
 leaves the contributor's machine.

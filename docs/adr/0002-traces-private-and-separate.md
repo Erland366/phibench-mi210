@@ -1,6 +1,6 @@
 # Traces are kept private and separate from the published tasks
 
-Status: accepted (2026-11-19)
+Status: accepted (2026-11-19); "successful only" amended by ADR 0008, which keeps failed attempts too
 
 The ML team wants the traces as training data, and only successful ones, so that each has a known answer (meeting
 of 2026-11-19). A trace describes the solution, and the solver must never see the solution (AGENTS.md rule 5), so
