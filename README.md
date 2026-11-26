@@ -34,8 +34,13 @@ src/phibench_mi210/
                    run_task.py is upstream's runner with AMD GPU support, run_task-amd.patch the change
 specs/             per task: spec.json and instruction.md (the solver's prompt); frozen plans; premerge-review.json
 tests/             CPU-only tests
-docs/              inputs.md (what we read from GEAK), the pre-merge report, experiment log, troubleshooting
+docs/              sop.md (turning any agent work into a task), inputs.md (what we read from GEAK), adr/ (decisions),
+                   the pre-merge report, experiment log, troubleshooting
+CONTEXT.md         the words we use (task, row, trace, anchor, ...)
 ```
+
+To turn your own work with a coding agent into a task, follow [docs/sop.md](docs/sop.md). The route below is the one
+for GEAK runs.
 
 ## Setup
 
