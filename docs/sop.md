@@ -100,7 +100,7 @@ A task counts only when every check below passes. Before you run anything, write
 - The image builds from its Dockerfile and contains no part of the reference solution.
 - The tests reject the wrong edit. This includes the wrong edit made on purpose (`negative.patch`) and every failed attempt from your trace that ran but gave wrong results.
 - The reference solution passes when it is applied the way a solver's change would be, with `solution/solve.sh`.
-- `instruction.md` and `environment/` name nothing internal. Run the scrub check of step 6 on the package to confirm this.
+- `instruction.md` and `environment/` name nothing internal: no internal path, node, account or URL, and nothing that says where the task came from.
 
 ### Pass/fail task
 
@@ -128,7 +128,7 @@ Store a trace for every run on the task, not only the one that solved it: your o
 - **Cut the slice.** For your own session: one session usually contains several pieces of work. Mark the slice from your request for this work to its end, and keep the failed attempts inside it, because the ML team wants the path to the solution and not only the final answer.
 - **Keep the conversation as it was recorded.** For an open model, the main copy is the raw model calls, each request and response as sent, because they show what the model saw after the harness compacted its history. Keep the model's reasoning, and keep the harness's own log next to the calls. For Claude, keep the messages, tool calls and tool outputs in their original JSONL form and remove the thinking blocks. Never edit the raw files.
 - **Keep the code.** Save the run's final patch and each submission's diff and score. If a run's final code was not saved, its record has no patch; do not rebuild one.
-- **Run the scrub check.** The trace must contain no secrets, tokens, passwords, proxy settings, private paths, node names, account names or other people's data. Check the tool outputs most carefully, because these items appear there most often.
+- **Run the scrub check.** The trace must contain no secrets: no tokens, passwords, API keys or proxy addresses with credentials. Check the tool outputs most carefully, because secrets appear there most often. If a raw file holds one, blank out only that secret and record in the metadata which file and what was changed. Internal paths and node names may stay, because the trace dataset is private; traces that are ever made public get a full scrub first.
 - **Store the record** in the group's private trace dataset, with a small metadata file that records the task `id`, the source, the agent or harness and its version, the model and how it was served, the hardware, the date, the label with its reward, speedup, anchor and hard-fail reasons, and the files. Never put a trace in the task package.
 
 **Tool not ready.** The record format, the slice cutter, the converter and the scrub check do not exist yet. Until they do, cut and store by hand, search each trace for the items listed in the scrub check, and ask before uploading.

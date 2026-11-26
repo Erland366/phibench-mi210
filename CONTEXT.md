@@ -61,8 +61,9 @@ started). A run the verifier has not scored yet is **unscored**, a waiting state
 _Avoid_: failed (write unsuccessful), pass (ambiguous with the correctness check), solved, the agent's own "status"
 
 **Scrub check**:
-The automatic check that a trace slice holds no secrets, proxy settings, private paths or node names before it
-leaves the contributor's machine.
+The check that a trace holds no secrets (tokens, passwords, API keys, a proxy address with credentials) before it is
+stored; internal paths and node names may stay, because the trace dataset is private (ADR 0009). A task package is
+held to a stricter rule: it names nothing internal at all.
 
 **Wrong edit**:
 An incorrect change shipped with a task, which the verifier must reject; it proves the checks can fail. Each
