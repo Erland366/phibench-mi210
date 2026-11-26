@@ -1,10 +1,10 @@
 # Experiment log: Φ-Bench MI210 rows
 
-Entries 2026-11-06 to 2026-11-09, copied from `deploy_bbq` `references/experiment-log.md`, where this work started.
+Entries 2026-11-06 to 2026-11-09, copied from the GEAK repository's `references/experiment-log.md`, where this work started.
 They use the file names of that time: `evaluation/geak/phibench_<x>.py` is now `src/phibench_mi210/<x>.py`,
 `phibench_specs/` is `specs/`, `phibench_templates/` is `src/phibench_mi210/templates/`, and
 `training_reports/phibench-mi210-rows-premerge-2026-11-08.md` is `docs/premerge-report-2026-11-08.md`. Commit hashes
-in the entries are `deploy_bbq` commits. Add new entries at the end.
+in the entries are commits of the GEAK repository. Add new entries at the end.
 
 ### 2026-11-06 — Converter from a finished GEAK run to a Φ-Bench row (CPU only)
 

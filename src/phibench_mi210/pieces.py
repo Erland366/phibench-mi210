@@ -2,9 +2,9 @@
 
     python -m phibench_mi210.pieces --plan PLAN.json --out OUT
 
-Building and measuring a piece needs the GEAK task files and the Round check, so it stays in deploy_bbq
-(`python -m evaluation.geak.phibench_pieces build`, then `round_check_jais3.py measure` on each OUT/<piece>/work, one
-at a time on an idle MI210 node). This step only reads OUT/<piece>/work/verdict.json; see docs/inputs.md.
+Building and measuring a piece needs the GEAK task files and the Round check, so it stays in the GEAK
+repository (`python -m evaluation.geak.phibench_pieces build`, then `round_check_jais3.py measure` on each
+OUT/<piece>/work, one at a time on an idle MI210 node). This step only reads OUT/<piece>/work/verdict.json; see docs/inputs.md.
 
 A piece starts from the served kernel (the task's baseline_* files, the Round check's arm A) or from the task's
 stacked starting files (arm S). Its target score is sum(weight x start time) / sum(weight x candidate time) over its
@@ -21,7 +21,7 @@ from pathlib import Path
 
 FAILED_CHECKS = ('fail_correctness', 'fail_control', 'fail_rules')
 
-# The Round check's noise rule (deploy_bbq evaluation/geak/round_check_jais3.py, rule of 2026-10-29): the band is
+# The Round check's noise rule (the GEAK repository's evaluation/geak/round_check_jais3.py, rule of 2026-10-29): the band is
 # max(2%, the 90th percentile, nearest rank, of the per-round |A2/A - 1| gaps). Copied so that this repository needs
 # no GEAK code; tests/test_pieces.py pins it.
 MIN_NOISE = 0.02
@@ -106,7 +106,7 @@ def cmd_score(plan: dict, out: Path) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--plan', type=Path, required=True)
-    parser.add_argument('--out', type=Path, required=True, help='the directory deploy_bbq built the pieces in')
+    parser.add_argument('--out', type=Path, required=True, help='the directory the GEAK repository built the pieces in')
     args = parser.parse_args(argv)
     return cmd_score(json.loads(args.plan.read_text()), args.out)
 

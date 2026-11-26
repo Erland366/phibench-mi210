@@ -1,7 +1,7 @@
 # Troubleshooting
 
-Symptom, cause and fix of problems met in this project. The first section is copied from `deploy_bbq`
-`references/troubleshooting.md` (2026-11-08); file names there are as in `docs/experiment-log.md`.
+Symptom, cause and fix of problems met in this project. The first section is copied from the GEAK
+repository's `references/troubleshooting.md` (2026-11-08); file names there are as in `docs/experiment-log.md`.
 ## Enroot task images for Φ-Bench (2026-11-08)
 
 - **Symptom:** the verifier ran mode `candidate` although `KERNELBENCH_VERIFY_MODE` was set. **Cause:** `enroot start`

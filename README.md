@@ -30,10 +30,12 @@ src/phibench_mi210/
   enroot.py        build a task image with Enroot from its Dockerfile; run its verifier in a fresh copy
   table_search.py  a solver with no kernel insight: search one tile-table entry (is a one-entry task too easy?)
   premerge.py      every automatic check before a merge, plus the review items, in one report
-  traces.py        agent runs on a task -> trace records, labeled by the task's verifier (docs/trace-records.md)
+  traces.py        agent runs on a task -> trace records in conversation/chats/, labeled by the task's verifier
+                   or the independent check; session-requests, convert, upload (see below)
   templates/       package templates; vendored/ holds byte copies of upstream files (NOTICE.md);
                    run_task.py is upstream's runner with AMD GPU support, run_task-amd.patch the change
-specs/             per task: spec.json and instruction.md (the solver's prompt); frozen plans; premerge-review.json
+specs/             per task: spec.json and instruction.md (the solver's prompt); frozen plans; premerge-review.json;
+                   run sheets for traces (traces-*.json, and examples/run-sheet-example.json)
 tests/             CPU-only tests
 docs/              sop.md (turning any agent work into a task), inputs.md (what we read from GEAK), adr/ (decisions),
                    the pre-merge report, experiment log, troubleshooting
@@ -55,7 +57,7 @@ and the pinned `vllm/vllm-openai-rocm:v0.32.0` image file.
 
 ## From a GEAK run to a merged row
 
-1. **In `deploy_bbq`:** run GEAK and its independent Round check. For a large result, split it into pieces, build
+1. **In the GEAK repository** (separate from this one): run GEAK and its independent Round check. For a large result, split it into pieces, build
    and measure each one there (see [docs/inputs.md](docs/inputs.md)).
 2. **Score pieces** (if any): `uv run python -m phibench_mi210.pieces --plan specs/<task>/<plan>.json --out OUT`.
 3. **Write the task:** `specs/<task>/spec.json` (names, summary, scrub list, a deliberately wrong edit) and
@@ -77,8 +79,45 @@ and the pinned `vllm/vllm-openai-rocm:v0.32.0` image file.
 10. **Publish** the draft rows with `git push` to the Hugging Face dataset repository (never the upload API, which
     drops executable bits), then run step 9 on a fresh clone.
 
-## Relation to deploy_bbq
+## From an agent run to a trace record
 
-This work began in `deploy_bbq` (branch `enroot`, `evaluation/geak/phibench_*`); the files here carry their history.
-GEAK, the Round check and the piece build step stay there. The old copies in `deploy_bbq` are removed once this
-repository is accepted.
+A trace is the recorded conversation of one run of an agent on a task, kept with its label for training. The
+records live in the private Hugging Face dataset
+[`Erland/rsi-traces`](https://huggingface.co/datasets/Erland/rsi-traces); SOP step 6 ([docs/sop.md](docs/sop.md))
+says when to make one, and [docs/trace-records.md](docs/trace-records.md) describes the format.
+
+1. **Find the slice** (your own Claude Code session only): list the requests you typed, with the uuid to start at.
+
+   ```bash
+   uv run python -m phibench_mi210.traces session-requests --session ~/.claude/projects/<folder>/<session>.jsonl
+   ```
+
+2. **Write the run sheet:** a JSON file in `specs/` with one entry per run. Copy the matching entry from
+   [specs/examples/run-sheet-example.json](specs/examples/run-sheet-example.json): your own Claude Code session, an
+   open model's run (Qwen Code, mini-swe-agent) or a GEAK run. The sheet names the run folder and the task package
+   (`task_dir`); the task's id, size, kind, anchor and scoring hardware are read from the package, never typed again.
+3. **Convert:** one record per run. Every conversation goes to `conversation/chats/` of its record, one file per
+   chat, in the same message shape for every source; the label comes from the task's verifier or the independent
+   check, never from the agent.
+
+   ```bash
+   uv run python -m phibench_mi210.traces convert --sheet specs/<sheet>.json --out <dataset folder>
+   ```
+
+   It refuses a run, and writes nothing for it, when the sheet is incomplete, disagrees with the run or the task
+   package, or a file holds a secret; it never overwrites a stored record.
+4. **Upload:** checks every file on Hugging Face against the local one, and that the dataset is still private.
+
+   ```bash
+   uv run --with huggingface_hub python -m phibench_mi210.traces upload --out <dataset folder> --message "<what changed>"
+   ```
+
+`remessage --out <dataset folder>` rebuilds every record's chats from its raw files after the chat format changes,
+and `index --out <dataset folder>` rebuilds `index.jsonl`. A Codex session cannot be read yet, and Claude Code saves
+its thinking without text, so a Claude chat has no readable reasoning.
+
+## Where GEAK runs
+
+GEAK, its Round check and the piece build step run in the GEAK repository, separate from this one; this
+repository only reads the folders they write ([docs/inputs.md](docs/inputs.md)). This work began there, and the files
+here carry their history.

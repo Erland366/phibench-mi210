@@ -1,8 +1,8 @@
 # Inputs: what this repository reads from a GEAK run
 
-This repository does not run GEAK or the Round check. Both live in `deploy_bbq` (`evaluation/geak/`), which needs
+This repository does not run GEAK or the Round check. Both live in the GEAK repository (`evaluation/geak/`), which needs
 the `./k2` tooling and the node setup. Here we only read the folders they write. This page is the contract: if
-`deploy_bbq` changes these files, update this page and the code together.
+the GEAK repository changes these files, update this page and the code together.
 
 ## A GEAK run folder (`--run-dir`)
 
@@ -43,10 +43,10 @@ routing recording). They become the package's `environment/repo/` and grader.
 
 ## Pieces
 
-A piece is one change from a larger GEAK patch, measured alone (see the README). `deploy_bbq` builds it and runs its
+A piece is one change from a larger GEAK patch, measured alone (see the README). The GEAK repository builds it and runs its
 Round check (`python -m evaluation.geak.phibench_pieces build --plan PLAN --results RESULTS --out OUT`, then
 `round_check_jais3.py measure --work-dir OUT/<piece>/work`, one at a time on an idle node). This repository scores
 `OUT/<piece>/work/verdict.json` with the plan's frozen rule (`python -m phibench_mi210.pieces --plan PLAN --out OUT`),
 and a spec with `piece: {plan, id}` turns a qualifying piece into a row (`--round-check OUT/<piece>/work`).
 
-The plans live here in `specs/`; `deploy_bbq`'s build step reads the same plan file.
+The plans live here in `specs/`; the GEAK repository's build step reads the same plan file.
