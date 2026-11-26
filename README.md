@@ -113,7 +113,9 @@ says when to make one, and [docs/trace-records.md](docs/trace-records.md) descri
 
    It refuses a run, and writes nothing for it, when the sheet is incomplete, disagrees with the run or the task
    package, or a file holds a secret; it never overwrites a stored record.
-4. **Upload:** checks every file on Hugging Face against the local one, and that the dataset is still private.
+4. **Upload:** with this machine's default Hugging Face login (`hf auth login` once, with an account that can write
+   to the dataset). It prints the account it uploaded as, then checks every file on Hugging Face against the local
+   one, and that the dataset is still private.
 
    ```bash
    uv run --with huggingface_hub python -m phibench_mi210.traces upload --out <dataset folder> --message "<what changed>"

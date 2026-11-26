@@ -1322,7 +1322,8 @@ def _git_blob_sha1(data: bytes) -> str:
 def upload(out: Path, repo: str, message: str) -> dict:
     """Upload the dataset folder to its private Hugging Face repo, then check that every local file is on Hugging Face
     with the same content and that the repo is still private. Generated files of the earlier layout are removed from
-    the repo. Needs huggingface_hub (run with: uv run --with huggingface_hub ...) and a logged-in token."""
+    the repo. Needs huggingface_hub (run with: uv run --with huggingface_hub ...) and the machine's default Hugging Face
+    login (`hf auth login`); the result names the account it uploaded as."""
     try:
         from huggingface_hub import HfApi
     except ImportError as e:
@@ -1330,7 +1331,12 @@ def upload(out: Path, repo: str, message: str) -> dict:
                           'phibench_mi210.traces upload ...') from e
     if not (out / 'index.jsonl').is_file() or not (out / 'records').is_dir():
         raise RecordError(f'{out} is not a trace dataset folder (no index.jsonl or records/)')
-    api = HfApi()
+    api = HfApi()  # this machine's default Hugging Face login (`hf auth login`)
+    try:
+        account = api.whoami()['name']
+    except Exception as e:
+        raise RecordError('upload needs a Hugging Face login on this machine: run `hf auth login` with an account '
+                          f'that can write to {repo}') from e
     if not api.dataset_info(repo).private:
         raise RecordError(f'refused: {repo} is not private (ADR 0009: traces stay private)')
     commit = api.upload_folder(folder_path=str(out), repo_id=repo, repo_type='dataset', commit_message=message,
@@ -1351,7 +1357,7 @@ def upload(out: Path, repo: str, message: str) -> dict:
         if not ok:
             bad.append(rel)
     info = api.dataset_info(repo)
-    return {'commit': getattr(commit, 'oid', str(commit)), 'local': len(local), 'remote': len(remote),
+    return {'account': account, 'commit': getattr(commit, 'oid', str(commit)), 'local': len(local), 'remote': len(remote),
             'missing_on_hf': sorted(set(local) - set(remote)), 'only_on_hf': sorted(set(remote) - set(local)),
             # Hugging Face adds its own LFS line to .gitattributes on every upload, so that file always differs
             'hash_mismatches': [b for b in bad if b != '.gitattributes'], 'private': info.private, 'sha': info.sha}
@@ -1383,7 +1389,7 @@ def main(argv=None) -> int:
             return 0
         if args.cmd == 'upload':
             r = upload(args.out, args.repo, args.message)
-            print(f'commit {r["commit"]} | local files {r["local"]} | on Hugging Face {r["remote"]} | missing there '
+            print(f'uploaded as {r["account"]} | commit {r["commit"]} | local files {r["local"]} | on Hugging Face {r["remote"]} | missing there '
                   f'{len(r["missing_on_hf"])} | only there {len(r["only_on_hf"])} | different content '
                   f'{len(r["hash_mismatches"])} | private {r["private"]}')
             problems = r['missing_on_hf'] + r['only_on_hf'] + r['hash_mismatches']

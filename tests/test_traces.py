@@ -13,6 +13,38 @@ QWEN = {'name': 'Qwen3.8-27B', 'precision': 'bf16',
         'served_by': {'server': 'vLLM', 'version': '0.32.0', 'settings': 'tensor parallel 4'}}
 
 
+def test_upload_names_the_login_and_refuses_without_one(tmp_path, monkeypatch):
+    import sys
+    import types
+    out = tmp_path / 'ds'
+    (out / 'records').mkdir(parents=True)
+    (out / 'index.jsonl').write_bytes(b'')
+
+    class Api:
+        logged_in = True
+
+        def whoami(self):
+            if not Api.logged_in:
+                raise OSError('not logged in')
+            return {'name': 'someone'}
+
+        def dataset_info(self, repo):
+            return types.SimpleNamespace(private=True, sha='abc')
+
+        def upload_folder(self, **kw):
+            return types.SimpleNamespace(oid='c1')
+
+        def list_repo_tree(self, *a, **kw):
+            return []
+
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', types.SimpleNamespace(HfApi=Api))
+    r = traces.upload(out, 'Erland/rsi-traces', 'msg')
+    assert r['account'] == 'someone' and r['commit'] == 'c1'
+    Api.logged_in = False
+    with pytest.raises(traces.RecordError, match='hf auth login'):
+        traces.upload(out, 'Erland/rsi-traces', 'msg')
+
+
 def entry(record_id='run-1', **over):
     e = {
         'record_id': record_id, 'source': 'open_model_run', 'run_dir': 'RUN', 'task_dir': str(TASK_DIR),
