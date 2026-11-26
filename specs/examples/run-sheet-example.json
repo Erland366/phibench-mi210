@@ -1,5 +1,4 @@
 {
- "about": "Example run sheet with one entry for each kind of run the converter reads (SOP step 6, docs/trace-records.md). The Qwen and GEAK entries are copied from the real sheets (specs/traces-qwen-runs-2026-11.json and specs/traces-geak-runs-2026-11.json); the Claude Code entry shows how a person's own session is described. Copy the entry that matches your run, change every value, and keep the sheet in specs/. List the requests of a Claude Code session with: python -m phibench_mi210.traces session-requests --session <file>. Convert with: python -m phibench_mi210.traces convert --sheet <sheet> --out <dataset folder>. Upload with: uv run --with huggingface_hub python -m phibench_mi210.traces upload --out <dataset folder> --message <what changed>.",
  "machine": "auh7-4b-gpu-303",
  "runs": [
   {
