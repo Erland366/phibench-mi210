@@ -27,9 +27,27 @@ records/<record_id>/
   conversation/raw/...           the original files, copied byte for byte, never edited
   conversation/messages.jsonl    the run as one list of messages, generated from raw/ (see below)
   code/final.patch               the final working tree against the starting code (absent if it was not saved)
+  code/final.status.txt          git status of that tree, next to the patch
   code/submissions/<n>/          each submission's diff and its verifier result, if the harness submitted
-  verifier/                      the final verifier output (reward.json and its logs)
+  harness/                       what the harness itself wrote: exit code and sandbox (agent_result.json),
+                                 stderr, sandbox build log, start and finish times, the job log with step times
+  harness/loop/                  the submission loop's own files: finalize.json (score trajectory, winning
+                                 submission, the solver's stated reason for stopping), best.json,
+                                 finalize_apply.log, count, dev/
+  serving/                       the model server's log for this run (flags, version, cache statistics)
+  verifier/                      the counted final score: reward.json, the full verifier output, finalize.txt,
+                                 console log, exit code
+  verifier/invalid-<n>/          a final score that was thrown away (for example one taken on a busy GPU),
+                                 kept with its reason in outcome.invalid_scores
 ```
+
+For an open-model run, `conversation/raw/` holds the raw model calls (`logs/agent/openai/*.json`), the harness
+stream (`stream.jsonl`), the harness's own chat recording and its home folder files (settings, usage record), or
+`trajectory.json` for mini-swe-agent.
+
+`finalize_apply.log` matters for reading the outcome: it says whether the loop planted the winning submission into
+the tree before the final score, or left the starting code (as when every submission was rejected), so it decides
+what the final score measured.
 
 `record_id` is the run's own folder name where it has one (for example
 `2026-11-25-qwen-code-causal-delivery-vclock-1`), and `<date>-geak-<run>-<attempt>` for a GEAK attempt.
@@ -43,10 +61,10 @@ records/<record_id>/
 | `agent` | harness and version (for example Qwen Code 0.28.4), its settings file |
 | `model` | name (for example Qwen3.8-27B), precision, how it was served (vLLM version, GPUs, context length) |
 | `hardware` | where the run and its score happened (for example 4 × MI210 serving, scored on AMD EPYC 9334) |
-| `anchor` | the `ref_speedup` the score used and where it was measured (upstream's, or a local recalibration and its path) |
+| `anchor` | the `ref_speedup` the score used, where it was measured and the path of its evidence (upstream's; ours from this repo's calibration; or a local recalibration on the scoring machine, which keeps upstream's value as `upstream_ref_speedup`) |
 | `time` | started, finished, wall-clock limit |
-| `outcome` | `label` (`successful`, `unsuccessful`, `invalid` or `unscored`), `reward`, `speedup`, `correctness_ok`, `hard_fail_reasons`, `invalid_reason`, and the path of the verifier output it came from |
-| `submissions` | per submission: number, speedup, reward, correctness, hard-fail reasons, diff path |
+| `outcome` | `label` (`successful`, `unsuccessful`, `invalid` or `unscored`), `reward`, `speedup`, `correctness_ok`, `hard_fail_reasons`, `invalid_reason`, the harness exit code, whether the final tree was the winning submission or the starting code, the path of the counted verifier output, and `invalid_scores` (thrown-away scores with their reasons) |
+| `submissions` | per submission: number, speedup, reward, correctness, hard-fail reasons, diff path, and `timing_clean` (false when the machine was shared during that timing, with the reason) |
 | `conversation` | which raw files are the main copy, whether reasoning is included, whether thinking was dropped, number of compactions |
 | `provenance` | machine, original paths, date copied, SHA-256 of every copied file |
 | `scrub` | whether the scrub check passed, by whom, when, and anything it changed |
@@ -64,6 +82,13 @@ Where the harness compacted its history, a line `{"role": "event", "event": "com
 the point, and the raw calls in `raw/` show exactly what the model saw after it. `reasoning` is filled for open
 models and left out for Claude.
 
+How a compaction looks in Qwen Code's raw calls (Qwen Code 0.28.4): the request's last message is a user message
+that starts "You are the component that summarizes a conversation when its context window is about to overflow",
+sent with `max_tokens` 20000. The response's `content` is the summary and `reasoning_content` the model's reasoning.
+The next call restarts from a short history: the system message, the summary fed back as a user `<state_snapshot>`
+message, a short assistant acknowledgement, and a user message listing the files read before. The compaction call
+itself is an event in `messages.jsonl`, not a turn of the task.
+
 ## Secrets and paths
 
 Raw files keep internal paths and node names, because the dataset is private (ADR 0009). Secrets are never stored:
@@ -72,7 +97,8 @@ out, and `record.json` `scrub` lists the file and the change. Making traces publ
 
 ## Known gaps
 
-- The size of `raw/` for open-model runs grows with every call (each request repeats the conversation so far); it
-  has to be measured before choosing where the dataset is stored.
+- Size: each raw call repeats the conversation so far. The six Qwen Code runs of 2026-11-24 to 25 hold 19 to 53 MB
+  of raw calls each (49 to 190 files, the largest 660 KB), about 167 MB in all, which compresses well. Where the
+  dataset is stored is still to be decided.
 - GEAK attempts are `unscored` until each attempt's patch is run through the verifier of the task built from that
   GEAK run.
