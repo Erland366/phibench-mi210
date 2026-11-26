@@ -112,6 +112,12 @@ For a GEAK run the record holds, in place of the open-model files:
   verifier/piece-scores.json         for a piece: the scores the row was accepted on
 ```
 
+`prompt.txt` is the top-level agent's first message (GEAK's own prompt). The unit to train on is one agent's file
+in `conversation/agents/`; `messages.jsonl` lists the agents one after another in the order they started, not as
+one dialogue. An agent whose every reply came from the harness rather than a model (Claude Code names the model
+`<synthetic>`, for example when GEAK stops and closes its remaining steps) keeps its own file, is marked
+`synthetic` in `conversation.agents`, and is left out of `messages.jsonl`.
+
 Workspaces, baselines and profiler output stay in the run folder, which `provenance.run_dir` names. Each engineer
 attempt is listed under `submissions` with GEAK's own reported speedup, marked as self-reported; it never sets the
 label.
@@ -128,7 +134,7 @@ what the final score measured.
 | Field | Holds |
 |---|---|
 | `record_id`, `source` | as above |
-| `task` | `id`, `bench`, `kind` (`performance` or `implementation`), `origin` (which dataset and revision, for example upstream Φ-Bench `3bcefac` or `Erland/phibench-mi210-rows` `323e515`) |
+| `task` | `id`, `bench`, `kind` (`performance` or `implementation`), `origin` (which dataset and revision, for example upstream Φ-Bench `3bcefac` or `Erland/phibench-mi210-rows` `323e515`), and `prompt_vs_task`: `instruction` when the agent was given the task's own `instruction.md` (every open-model run), `same problem, other prompt` (a GEAK run on its own task, with GEAK's prompt), or `different problem` (a row made from one piece of a GEAK run's result, such as m256 and m1024, whose conversation worked on the whole layer); filter on it before training |
 | `agent` | harness and version (for example Qwen Code 0.28.4), its settings file |
 | `model` | name (for example Qwen3.8-27B), precision, how it was served (vLLM version, GPUs, context length) |
 | `hardware` | where the run and its score happened (for example 4 × MI210 serving, scored on AMD EPYC 9334) |
