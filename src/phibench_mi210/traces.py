@@ -159,17 +159,66 @@ def base_record(entry: dict, machine: str) -> dict:
 INDEX_FIELDS = ('record_id', 'source', 'label', 'reward', 'speedup')
 
 
+def _viewer_message(m: dict) -> dict:
+    """One message with the same keys and types in every row, so that the Hugging Face viewer can read it."""
+    content = m.get('content')
+    if m['role'] == 'event':
+        content = m.get('summary') or m.get('error') or m.get('status')
+    return {'role': m['role'], 'event': m.get('event'),
+            'content': content if isinstance(content, str) or content is None else _text_of(content),
+            'reasoning': m.get('reasoning'),
+            'tool_calls': json.dumps(m['tool_calls'], ensure_ascii=False) if m.get('tool_calls') else None,
+            'tool_call_id': m.get('tool_call_id')}
+
+
+DATASET_CARD = """---
+configs:
+- config_name: runs
+  data_files: viewer/runs.jsonl
+  default: true
+- config_name: index
+  data_files: index.jsonl
+---
+# RSI trace records
+
+One record per run of an agent on a Φ-Bench task, labeled by the task's own verifier: successful (final reward
+above 0), unsuccessful (reward 0), invalid (not a fair attempt) or unscored. Private to the group.
+
+- `viewer/runs.jsonl`: one row per run with its whole conversation, for reading in the viewer (generated).
+- `index.jsonl`: one line per record (generated).
+- `records/<record_id>/`: the record itself: `record.json`, the prompt, the raw files byte for byte, the generated
+  `messages.jsonl`, the code and the verifier output.
+
+Format and decisions: `docs/trace-records.md`, `CONTEXT.md` and `docs/adr/` in the phibench-mi210 repository.
+"""
+
+
 def rebuild_index(out: Path) -> int:
-    """index.jsonl from every record.json; rebuilt whole so that it can never disagree with the records."""
-    rows = []
+    """index.jsonl and viewer/runs.jsonl from every record; rebuilt whole so that they can never disagree with the
+    records. Writes the dataset card if there is none."""
+    rows, runs = [], []
     for rec_path in sorted((out / 'records').glob('*/record.json')):
         r = json.loads(rec_path.read_text())
-        rows.append({'record_id': r['record_id'], 'task': r['task']['id'], 'source': r['source'],
-                     'model': r['model'].get('name'), 'label': r['outcome'].get('label'),
-                     'reward': r['outcome'].get('reward'), 'speedup': r['outcome'].get('speedup')})
+        row = {'record_id': r['record_id'], 'task': r['task']['id'], 'source': r['source'],
+               'model': r['model'].get('name'), 'label': r['outcome'].get('label'),
+               'reward': r['outcome'].get('reward'), 'speedup': r['outcome'].get('speedup')}
+        rows.append(row)
+        msgs_path = rec_path.parent / 'conversation' / 'messages.jsonl'
+        msgs = [json.loads(l) for l in msgs_path.read_text().splitlines() if l.strip()] if msgs_path.is_file() else []
+        runs.append({**row, 'ref_speedup': r['outcome'].get('ref_speedup'),
+                     'harness': r['agent'].get('harness'), 'harness_version': r['agent'].get('version'),
+                     'invalid_reason': r['outcome'].get('invalid_reason'),
+                     'final_tree': r['outcome'].get('final_tree'), 'submissions': len(r['submissions']),
+                     'compactions': r['conversation'].get('compactions'), 'messages': [_viewer_message(m) for m in msgs]})
     with open(out / 'index.jsonl', 'w') as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + '\n')
+    (out / 'viewer').mkdir(exist_ok=True)
+    with open(out / 'viewer' / 'runs.jsonl', 'w') as fh:
+        for run in runs:
+            fh.write(json.dumps(run, ensure_ascii=False) + '\n')
+    if not (out / 'README.md').exists():
+        (out / 'README.md').write_text(DATASET_CARD)
     return len(rows)
 
 

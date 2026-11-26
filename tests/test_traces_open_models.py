@@ -159,6 +159,18 @@ def test_qwen_code_run_becomes_a_record(tmp_path, qwen_run):
     assert [r['role'] for r in rows] == ['system', 'user', 'assistant', 'tool', 'assistant']
 
 
+def test_viewer_rows_have_one_shape(tmp_path, qwen_run):
+    out = tmp_path / 'ds'
+    traces.convert({'machine': 'm', 'runs': [sheet_entry(qwen_run)]}, out)
+    runs = [json.loads(l) for l in (out / 'viewer/runs.jsonl').read_text().splitlines()]
+    assert len(runs) == 1 and runs[0]['label'] == 'successful' and runs[0]['submissions'] == 2
+    msgs = runs[0]['messages']
+    assert {tuple(sorted(m)) for m in msgs} == {('content', 'event', 'reasoning', 'role', 'tool_call_id', 'tool_calls')}
+    assert all(m['content'] is None or isinstance(m['content'], str) for m in msgs)
+    assert isinstance(msgs[2]['tool_calls'], str)
+    assert (out / 'README.md').read_text().startswith('---\nconfigs:')
+
+
 def test_anchor_mismatch_is_refused(tmp_path, qwen_run):
     e = sheet_entry(qwen_run, anchor={'ref_speedup': 322.07})
     with pytest.raises(traces.RecordError, match='ref_speedup'):
