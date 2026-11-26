@@ -87,7 +87,7 @@ def test_convert_writes_record_and_index(tmp_path, fake_adapter):
     assert (out / 'records/run-1/prompt.txt').read_text() == 'do it'
     index = [json.loads(l) for l in (out / 'index.jsonl').read_text().splitlines()]
     assert index == [{'record_id': 'run-1', 'task': 'lh/x', 'source': 'open_model_run', 'model': 'm',
-                      'label': 'successful', 'reward': 0.25, 'speedup': 3.0}]
+                      'label': 'successful', 'reward': 0.25, 'speedup': 3.0, 'prompt_vs_task': 'instruction'}]
 
 
 def test_invalid_reason_wins_over_reward(tmp_path, fake_adapter):

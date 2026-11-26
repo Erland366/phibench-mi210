@@ -254,7 +254,8 @@ def rebuild_index(out: Path) -> int:
         r = json.loads(rec_path.read_text())
         row = {'record_id': r['record_id'], 'task': r['task']['id'], 'source': r['source'],
                'model': r['model'].get('name'), 'label': r['outcome'].get('label'),
-               'reward': r['outcome'].get('reward'), 'speedup': r['outcome'].get('speedup')}
+               'reward': r['outcome'].get('reward'), 'speedup': r['outcome'].get('speedup'),
+               'prompt_vs_task': r['task'].get('prompt_vs_task')}
         rows.append(row)
         msgs_path = rec_path.parent / 'conversation' / 'messages.jsonl'
         msgs = [json.loads(l) for l in msgs_path.read_text().splitlines() if l.strip()] if msgs_path.is_file() else []
@@ -691,6 +692,8 @@ def messages_from_claude_code(path: Path) -> list[dict]:
 
 # ---------------------------------------------------------------------------------------------------- GEAK runs
 
+SYNTHETIC_MODEL = '<synthetic>'  # Claude Code's model name on replies that the harness wrote, not a model
+PROMPT_VS_TASK = ('instruction', 'same problem, other prompt', 'different problem')
 ROW_RULE_MIN = 1.1  # the paper's minimum; the rule a GEAK result had to pass to become a row (ADR 0010)
 
 # The GEAK working files worth keeping with the record (relative to exp/team_task_*/task/); workspaces, baselines
@@ -809,12 +812,27 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
         builder.write_jsonl(rel, unify([{**r, 'agent': a['role']} for r in rows]))
         raw_rel = (f'conversation/raw/claude/{src.relative_to(claude_root).as_posix()}'
                    if claude_root in src.parents else None)
-        agents.append({**a, 'raw': raw_rel, 'messages_file': rel, 'messages': len(rows)})
-        all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
+        # An agent whose every reply came from the harness, not a model (Claude Code writes such replies with model
+        # "<synthetic>", for example when GEAK stops and closes its remaining steps), is kept in its own file but
+        # left out of messages.jsonl.
+        models = {r.get('model') for r in rows if r['role'] == 'assistant'}
+        synthetic = bool(models) and models <= {SYNTHETIC_MODEL}
+        agents.append({**a, 'raw': raw_rel, 'messages_file': rel, 'messages': len(rows), 'synthetic': synthetic})
+        if not synthetic:
+            all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
     builder.write_jsonl('conversation/messages.jsonl', unify(all_rows))
-    record['conversation'] = {'main': 'conversation/raw/claude', 'readable': 'conversation/readable',
-                              'agents': agents, 'reasoning_included': False, 'thinking_dropped': True,
-                              'thinking_blocks_removed': removed}
+    first_user = next((r['content'] for r in messages_from_claude_code(Path(geak_agents(run)[0]['source']))
+                       if r['role'] == 'user'), None)
+    if not first_user:
+        raise RecordError(f'{entry["record_id"]}: the top-level agent has no first user message to use as the prompt')
+    (builder.stage / 'prompt.txt').write_text(first_user)
+    record['prompt_source'] = "generated from the top-level agent's first user message"
+    record['conversation'] = {
+        'main': 'conversation/raw/claude', 'readable': 'conversation/readable', 'agents': agents,
+        'training_unit': 'conversation/agents/<nn>-<role>.jsonl, one conversation per agent; messages.jsonl lists '
+                         'the non-synthetic agents one after another in the order they started, not as one dialogue',
+        'synthetic_agents': sum(a['synthetic'] for a in agents),
+        'reasoning_included': False, 'thinking_dropped': True, 'thinking_blocks_removed': removed}
     record['model']['transcript_models'] = outcome.get('transcript_models')
     record['outcome']['harness_status'] = outcome.get('status')
     record['time'] = {'seconds': outcome.get('seconds')}
@@ -879,6 +897,15 @@ ADAPTERS = {
 
 def _convert_one(entry: dict, out: Path, machine: str) -> None:
     check_sheet_entry(entry)
+    # How the prompt the agent saw relates to the task the record is for (ADR 0010): an open model was given the
+    # task's own instruction; a GEAK run had GEAK's prompt, for the same problem or (a row made from one piece of its
+    # result) for a different, larger one.
+    pvt = entry.get('prompt_vs_task', 'instruction' if entry['source'] == 'open_model_run' else None)
+    if pvt not in PROMPT_VS_TASK:
+        raise RecordError(f'{entry["record_id"]}: prompt_vs_task must be one of {PROMPT_VS_TASK} (required for '
+                          f'source {entry["source"]})')
+    if entry['source'] == 'open_model_run' and pvt != 'instruction':
+        raise RecordError(f'{entry["record_id"]}: an open-model run is given the task\'s instruction')
     adapter = ADAPTERS.get((entry['source'], entry['agent'].get('harness')))
     if adapter is None:
         raise RecordError(f'{entry["record_id"]}: no converter yet for source {entry["source"]} with harness '
@@ -886,6 +913,7 @@ def _convert_one(entry: dict, out: Path, machine: str) -> None:
     builder = RecordBuilder(out, entry['record_id'])
     try:
         record = base_record(entry, machine)
+        record['task']['prompt_vs_task'] = pvt
         adapter(entry, builder, record)
         # A reader that labels by its own rule (GEAK: the Round check) sets the label itself; otherwise the task's
         # verifier reward decides. An invalid reason always wins.
@@ -950,7 +978,8 @@ def messages_of_record(d: Path, rec: dict) -> tuple[list[dict], dict]:
                 raise RecordError(f'{d}: agent {a["n"]} has no raw file inside the record')
             rows = messages_from_claude_code(d / a['raw'])
             per_agent[a['messages_file']] = unify([{**r, 'agent': a['role']} for r in rows])
-            all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
+            if not a.get('synthetic'):
+                all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
         return unify(all_rows), per_agent
     raise RecordError(f'{d}: no message reader for source {rec["source"]} with harness {rec["agent"].get("harness")}')
 
@@ -972,6 +1001,8 @@ def remessage(out: Path) -> list[str]:
                 for row in agent_rows:
                     fh.write(json.dumps(row, ensure_ascii=False) + '\n')
         tmp.replace(d / 'conversation' / 'messages.jsonl')
+        if rec['source'] == 'open_model_run' and 'prompt_vs_task' not in rec['task']:
+            rec['task']['prompt_vs_task'] = 'instruction'  # an open model is given the task's own instruction
         rec['conversation']['messages_format'] = MESSAGES_FORMAT
         rec['conversation']['messages_rebuilt_at'] = dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
         for f in rec['provenance']['files']:

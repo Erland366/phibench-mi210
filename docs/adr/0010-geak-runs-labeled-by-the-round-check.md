@@ -21,7 +21,9 @@ When one GEAK run is the source of several rows (the first MoE run gave both `mi
 note that its reference solution is one piece of the run's result. Such a run gets no record of its own for the task
 it was given, even when its whole result failed it (the first MoE run's whole result was 1.094x): the same
 conversation would otherwise be both a successful and an unsuccessful example. The whole result is kept in each
-record as context (`outcome.run_result`), never as the label. Claude's thinking blocks are dropped, as for every
+record as context (`outcome.run_result`), never as the label. Because that conversation worked on the whole layer
+and never saw the row's instruction, each such record says so (`task.prompt_vs_task` = `different problem`, user,
+2026-11-26), so that whoever trains can leave it out. Claude's thinking blocks are dropped, as for every
 Claude trace.
 
 ## Considered options

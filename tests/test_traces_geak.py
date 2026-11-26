@@ -94,7 +94,7 @@ def geak_entry(run, rc, prov, **over):
          'task': {'id': 'mi210-jais3-routed-moe-w8a16', 'bench': 'lh', 'kind': 'performance',
                   'origin': 'Erland/phibench-mi210-rows 323e515'},
          'agent': {'harness': 'geak'}, 'model': {'name': 'claude-opus-5-5'}, 'hardware': {'scored_on': 'MI210'},
-         'anchor': {'ref_speedup': None}, 'evidence': {'kind': 'round_check', 'dir': str(rc)},
+         'anchor': {'ref_speedup': None}, 'prompt_vs_task': 'same problem, other prompt', 'evidence': {'kind': 'round_check', 'dir': str(rc)},
          'row': {'provenance': str(prov)}}
     e.update(over)
     return e
@@ -193,3 +193,46 @@ def test_piece_evidence_labels_by_its_qualifies_flag(tmp_path, geak):
 def test_invalid_reason_still_wins_for_geak(tmp_path, geak):
     traces.convert({'machine': 'm', 'runs': [geak_entry(*geak, invalid_reason='driver crashed')]}, tmp_path / 'ds')
     assert load(tmp_path / 'ds')['outcome']['label'] == 'invalid'
+
+
+def test_prompt_is_the_top_level_agents_first_message(tmp_path, geak):
+    traces.convert({'machine': 'm', 'runs': [geak_entry(*geak)]}, tmp_path / 'ds')
+    d = tmp_path / 'ds/records/geak-moe-v2'
+    assert (d / 'prompt.txt').read_text() == 'You are the engineer.'
+    rec = load(tmp_path / 'ds')
+    assert rec['prompt_source'] == "generated from the top-level agent's first user message"
+    assert rec['task']['prompt_vs_task'] == 'same problem, other prompt'
+    assert 'one conversation per agent' in rec['conversation']['training_unit']
+
+
+def test_synthetic_agent_stays_in_its_file_but_not_in_messages(tmp_path, geak):
+    run, rc, prov = geak
+    stub = run / 'home/.claude/projects/-proj/sess/subagents/workflows/wf_1/agent-a2.jsonl'
+    jl(stub, [{'type': 'user', 'message': {'role': 'user', 'content': 'validate'}},
+              {'type': 'assistant', 'message': {'id': 's1', 'role': 'assistant', 'model': '<synthetic>',
+                                                'content': [{'type': 'text', 'text': 'No response requested.'}]}}])
+    write(run / 'chat/03-director-validate.md', f'# director:validate\n\nSource: `{stub}`\n')
+    readme = run / 'chat/README.md'
+    readme.write_text(readme.read_text() + '| 3 | 10:13:08 | director:validate | 2 | 0 | <synthetic> | '
+                                           '[03-director-validate.md](03-director-validate.md) |\n')
+    traces.convert({'machine': 'm', 'runs': [geak_entry(run, rc, prov)]}, tmp_path / 'ds')
+    rec = load(tmp_path / 'ds')
+    assert [a['synthetic'] for a in rec['conversation']['agents']] == [False, False, True]
+    assert rec['conversation']['synthetic_agents'] == 1
+    d = tmp_path / 'ds/records/geak-moe-v2'
+    assert (d / 'conversation/agents/03-director-validate.jsonl').is_file()
+    msgs = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
+    assert 'director:validate' not in {m['agent'] for m in msgs}
+
+
+def test_geak_entry_must_say_how_its_prompt_relates_to_the_task(tmp_path, geak):
+    e = geak_entry(*geak)
+    del e['prompt_vs_task']
+    with pytest.raises(traces.RecordError, match='prompt_vs_task'):
+        traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
+
+
+def test_open_model_run_cannot_claim_another_prompt(tmp_path):
+    from test_traces import entry
+    with pytest.raises(traces.RecordError, match='instruction'):
+        traces.convert({'machine': 'm', 'runs': [entry(prompt_vs_task='different problem')]}, tmp_path / 'ds')
