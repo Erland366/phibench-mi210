@@ -106,8 +106,8 @@ Every run on the task becomes one record, starting with your own session and inc
 |---|---|---|
 | `record_id` | the record's name, usually the run folder's name | the run folder |
 | `source` | `claude_code_session`, `codex_session`, `geak_run` or `open_model_run` | how the run was made |
-| `run_dir` | the full path of the run folder | the run folder |
-| `task_dir` | the full path of the Φ-Bench task package the run was on; the converter reads the task's id, size, kind and scoring hardware from its `task.toml`, and the anchor from the file `task.toml` names (`tests/ref_speedup.txt` for our rows), so the sheet does not repeat them | the task package |
+| `run_dir` | the path of the run folder, starting with a named root such as `$WORK` (README, Setup) | the run folder |
+| `task_dir` | the path of the Φ-Bench task package the run was on, with a named root; the converter reads the task's id, size, kind and scoring hardware from its `task.toml`, and the anchor from the file `task.toml` names (`tests/ref_speedup.txt` for our rows), so the sheet does not repeat them | the task package |
 | `task` | only `origin`, the dataset and its revision | the task's dataset |
 | `agent` | the `harness` and its `version` | the harness's own log |
 | `model` | `name`, one of `Qwen3.8-27B` or `claude-opus-5-5`; for a model we served, also `precision` and `served_by` with `server` (`vLLM`), `version` and `settings` | the model server's log |

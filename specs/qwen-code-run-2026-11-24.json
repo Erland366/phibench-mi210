@@ -12,7 +12,7 @@
     "environment": "writable sandbox of the task image, apptainer exec --fakeroot --contain --cleanenv --no-home, /dev/kfd and /dev/dri bound, a host directory at /tmp, HIP_VISIBLE_DEVICES=0, working directory /app/repo, proxy variables unset (no route to the internet)",
     "prompt": "instruction.md verbatim, then: '---' and 'Note on your shell tool: a command runs for at most 2 minutes unless you give it a longer timeout (up to 10 minutes). `bash /opt/loop/submit.sh` takes about 5 minutes.'",
     "limits": "wall time 14400 s (timeout --signal=INT, killed 60 s later), 16 scored submissions (the task's own limit)",
-    "script": "/vast/users/qirong.ho/erland/phibench-apptainer/scripts/run_qwen_code.sh"
+    "script": "$WORK/phibench-apptainer/scripts/run_qwen_code.sh"
   },
   "final_score": "scripts/final_score.sh, unchanged from specs/qwen-agent-pilot-2026-11-24.json: stop the server, every GPU idle, auto-finalize if at least one submission and no finalize, /tests created, tests/test.sh in the solver's sandbox, every GPU idle after",
   "audit": "the stream and raw API logs searched for any read of /opt/loop/private, /tests or the patches, and for network commands; reported, the score unchanged",

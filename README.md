@@ -30,6 +30,7 @@ src/phibench_mi210/
   enroot.py        build a task image with Enroot from its Dockerfile; run its verifier in a fresh copy
   table_search.py  a solver with no kernel insight: search one tile-table entry (is a one-entry task too easy?)
   premerge.py      every automatic check before a merge, plus the review items, in one report
+  roots.py         the named roots ($RESULTS, $WORK) that specs and run sheets write instead of machine paths
   traces.py        agent runs on a task -> trace records in conversation/chats/, labeled by the task's verifier
                    or the independent check; session-requests, convert, upload (see below)
   templates/       package templates; vendored/ holds byte copies of upstream files (NOTICE.md);
@@ -50,7 +51,13 @@ for GEAK runs.
 ```bash
 uv sync
 uv run pytest
+cp specs/local-roots.example.json specs/local-roots.json   # then set this machine's folders in it
 ```
+
+Specs and run sheets never write a machine path: they write `$RESULTS/...` (the results folder on the MI210 node
+that runs GEAK and holds the rows) and `$WORK/...` (the work folder on the machine that serves the open models and
+runs the CPU tasks). Each machine maps the names to its own folders in `specs/local-roots.json`, which git ignores
+(or in the file named by `PHIBENCH_ROOTS`). A name that is not set on the machine is refused.
 
 Python 3.11 or newer, standard library only (plus `pytest` for the tests). GPU steps need an MI210 node with Enroot
 and the pinned `vllm/vllm-openai-rocm:v0.32.0` image file.

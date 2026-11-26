@@ -31,6 +31,7 @@ import tokenize
 from pathlib import Path
 
 from phibench_mi210.pieces import score_piece
+from phibench_mi210.roots import expand
 
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE / 'templates'
@@ -361,7 +362,7 @@ def same_package(new: Path, calibrated: Path) -> None:
 
 def build(spec_dir: Path, run_dir: Path, round_check: Path, out: Path, force: bool = False,
           calibration: Path | None = None) -> dict:
-    spec = load_json(spec_dir / 'spec.json')
+    spec = expand(load_json(spec_dir / 'spec.json'))  # $RESULTS/... and $WORK/... become this machine's folders
     verdict = load_json(round_check / 'verdict.json')
     outcome = load_json(run_dir / 'outcome.json')
     piece_score = None

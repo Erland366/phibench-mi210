@@ -20,6 +20,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from phibench_mi210.roots import RootError, expand
+
 SOURCES = ('claude_code_session', 'codex_session', 'geak_run', 'open_model_run')
 LABELS = ('successful', 'unsuccessful', 'invalid', 'unscored')
 
@@ -1192,7 +1194,12 @@ def _convert_one(entry: dict, out: Path, machine: str) -> None:
 def convert(sheet: dict, out: Path, keep_going: bool = False) -> dict:
     """Convert every run in the sheet; each run is all or nothing. Without keep_going the first refusal is raised;
     with it, every run is tried and the result lists what was written, what was already stored (records are never
-    overwritten) and what was refused, with the reason. The index is rebuilt either way."""
+    overwritten) and what was refused, with the reason. The index is rebuilt either way. Paths in the sheet are
+    written with named roots ($RESULTS/..., $WORK/...; roots.py) and expanded here, before anything is read."""
+    try:
+        sheet = expand(sheet)
+    except RootError as e:
+        raise RecordError(f'sheet: {e}') from e
     machine = sheet.get('machine')
     if not machine:
         raise RecordError('sheet: "machine" (where the run folders are) is required')

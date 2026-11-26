@@ -32,8 +32,8 @@ package says (sheet format 2, 2026-11-26; `specs/examples/run-sheet-example.json
 ```json
 {"machine": "auh7-1b-gpu-240",
  "runs": [{"record_id": "2026-11-25-qwen-code-causal-delivery-vclock-1", "source": "open_model_run",
-           "run_dir": ".../runs/2026-11-25-qwen-code-causal-delivery-vclock-1",
-           "task_dir": ".../local/wro-causal-delivery-vclock-coupled-epyc9334",
+           "run_dir": "$WORK/phibench-apptainer/runs/2026-11-25-qwen-code-causal-delivery-vclock-1",
+           "task_dir": "$WORK/phibench-apptainer/local/wro-causal-delivery-vclock-coupled-epyc9334",
            "task": {"origin": "upstream Phi-Bench 3bcefac, recalibrated on the AMD EPYC 9334"},
            "agent": {"harness": "qwen-code"},
            "model": {"name": "Qwen3.8-27B", "precision": "bf16",
@@ -45,7 +45,8 @@ package says (sheet format 2, 2026-11-26; `specs/examples/run-sheet-example.json
            "invalid_reason": null, "invalid_scores": [], "notes": ""}]}
 ```
 
-From `task_dir` the converter reads the task's `id`, `bench` and `kind` (`task.toml` `[task]`), the anchor
+Paths are written with the named roots `$RESULTS` and `$WORK`, which the converter expands from this machine's
+`specs/local-roots.json` before it reads anything (`roots.py`; README, Setup). From `task_dir` the converter reads the task's `id`, `bench` and `kind` (`task.toml` `[task]`), the anchor
 (the file `task.toml` names in `ref_speedup_source`: `tests/ref_speedup.txt` for our rows, the verifier manifest for the upstream CPU tasks; it must agree with `task.toml`'s `ref_speedup`) and `hardware.scored_on`
 (`[primary_metric] calibrated_on`, with `[environment] gpus` as the count for a GPU), and refuses a sheet entry that
 repeats any of them. `model.name`, the devices and `served_by.server` are fixed choices (`MODEL_NAMES`, `DEVICES` and

@@ -2,7 +2,7 @@
   "frozen_on": "2026-11-25, before the solver run on this task",
   "approved_by_user": "2026-11-25 (\"yes let's do it\" to: download, build, calibrate, then a Qwen Code run with the same harness as run 3, the task's 90 min limit, the server on GPUs 4-7)",
   "question": "Can Qwen3.8-27B with Qwen Code beat the reference (a heapq heap) on upstream Phi-Bench wro-vllm-v1-priority-request-queue, and what does it score?",
-  "task": "upstream Phi-Bench 3bcefac, tasks/lh/wro-vllm-v1-priority-request-queue; package with the local anchor: /vast/users/qirong.ho/erland/phibench-apptainer/local/wro-vllm-v1-priority-request-queue-epyc9334 (only tests/verifier-correctness-manifest.json differs from upstream)",
+  "task": "upstream Phi-Bench 3bcefac, tasks/lh/wro-vllm-v1-priority-request-queue; package with the local anchor: $WORK/phibench-apptainer/local/wro-vllm-v1-priority-request-queue-epyc9334 (only tests/verifier-correctness-manifest.json differs from upstream)",
   "image": "images/wro-vllm-v1-priority-request-queue-epyc9334.sif: the calibrated image with /opt/verifier-correctness-manifest.json carrying ref_speedup 322.071786 (specs/calibration-wro-vllm-pq-2026-11-25.json)",
   "where": "auh7-1b-gpu-240; the task uses no GPU (HIP_VISIBLE_DEVICES=-1); the model server on GPUs 4-7 (the user's split); lock /tmp/phibench-auh7-240-gpus.lock for the whole session and the final score",
   "model_server": "as in specs/qwen-code-run-2026-11-24.json (vLLM 0.32.0, TP 4 on GPUs 4-7, context 131072, TRITON_ATTN, reasoning parser qwen3, tool calls qwen3_coder)",

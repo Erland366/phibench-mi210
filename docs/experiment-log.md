@@ -10,7 +10,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 
 - **Type:** tooling, no GPU work, nothing published.
 - **Added:** `evaluation/geak/phibench_row.py`, its templates and the MoE v2 spec; output in
-  `/data/erland/results/phibench-rows` (dataset's 8 columns unchanged, MI210 stated in the summary and package).
+  `$RESULTS/phibench-rows` (dataset's 8 columns unchanged, MI210 stated in the summary and package).
 - **Result:** MoE v2 (`jais3-moe-v2-v032-01`) gives row `mi210-jais3-routed-moe-w8a16`, `ref_speedup` 1.130592; the
   dataset's `verify_package.py` passes. MoE round 2 (1.094x), MoVA v1 and v2 and attention round 2 are refused.
 - **Open:** the anchor is provisional (from the Round check, a different harness). Not done: image build, calibration
@@ -21,7 +21,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 
 - **Type:** Round check on one MI210 of node303 (GPU 0), one piece at a time, nothing else on the node. Plan and rule
   frozen before timing: `evaluation/geak/phibench_specs/jais3-moe-w8a16-v032-v2/pieces.json`. Tool:
-  `evaluation/geak/phibench_pieces.py`. Results: `/data/erland/results/phibench-pieces/jais3-moe-v2` (`scores.json`).
+  `evaluation/geak/phibench_pieces.py`. Results: `$RESULTS/phibench-pieces/jais3-moe-v2` (`scores.json`).
 - **Result: 0 of 5 qualify.** Target-row scores: SiLU fusion 1.035x, `COL_LOOP` 1.080x, decode down 1.091x, large-batch
   tiles 1.020x, 512-token decode route 1.029x, all under the 1.1x minimum. Whole-layer: 1.028x, 1.061x, 1.021x, 1.013x,
   1.008x. Correctness passed on all five. Slower rows outside the targets: SiLU m2, `COL_LOOP` m4, large-batch tiles m1.
@@ -36,7 +36,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 
 - **Type:** Round check, one MI210 of node303, one at a time. Plan frozen before timing:
   `evaluation/geak/phibench_specs/jais3-moe-w8a16-v032-v2/pieces_single_rows.json`. Results:
-  `/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows`.
+  `$RESULTS/phibench-pieces/jais3-moe-v2-single-rows`.
 - **Result: neither qualifies under the frozen rule, only because of small rows.** The 1024 tile entry (14 lines
   changed) gives m1024 1.258x; the new 256 decode entry (21 lines added) gives m256 1.175x. Both repeat the five-piece
   run, and correctness passed. Flagged slower: m2 and m4 (0.976x, 0.963x) with the 1024 entry, m4 (0.978x) with the 256
@@ -53,7 +53,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 - **Rerun result: both qualify.** m1024 entry 1.241x, m256 entry 1.216x, correctness passed. The slower flags moved
   between runs (m1 and m8; m2), which fits false flags on unchanged code.
 - **Rows:** `mi210-jais3-moe-m1024` (`ref_speedup` 1.241187) and `mi210-jais3-moe-m256` (1.215727), in
-  `/data/erland/results/phibench-rows`; `verify_package.py` passes and the 8 columns are unchanged. Not uploaded.
+  `$RESULTS/phibench-rows`; `verify_package.py` passes and the 8 columns are unchanged. Not uploaded.
 - **Package check on one MI210 (not calibration):** the shipped runner with the new row-only metric, one ABBA block:
   m1024 1.253x, m256 1.188x; correctness passed with the reference applied.
 - **Still open:** image build, the packaged verifier's self-checks, and anchor calibration (at least 5 runs). The m256
@@ -84,7 +84,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
   m1024: copying the existing 8192 entry to 1024 gives exactly the reference entry; 10 trials beat 1.1x; verifier
   on the finalist **1.2516x, above the anchor (reward about 0.009): too easy by the frozen rule.**
 - Packages rebuilt with `phibench_row.py --calibration` (only the anchor files changed); the provisional ones are
-  kept in `/data/erland/results/phibench-rows-provisional-20261108`. Hugging Face not updated.
+  kept in `$RESULTS/phibench-rows-provisional-20261108`. Hugging Face not updated.
 - **Published (user decision, 2026-11-08):** `Erland/phibench-mi210-rows` commit `1149a15a` carries the calibrated
   m256 and m1024 packages, the catalog and a README marking m1024 as too easy (kept for now, user's call). A
   logged-out download matched all 138 files.
@@ -132,18 +132,18 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
   Enroot base file stayed on node 303. Apptainer 1.5.3 builds without root (`--fakeroot`).
 - **Image:** `vllm/vllm-openai-rocm:v0.32.0` pulled from Docker Hub as a SIF (sha256 `45c95432…186948c`; torch
   2.13.0, vLLM 0.32.0+rocm723, Triton 3.8.0, ROCm 7.2.3). The m256 task image is a hand translation of its
-  Dockerfile (`/vast/users/qirong.ho/erland/phibench-apptainer/defs/`); every Dockerfile check passed. Not yet a tool.
+  Dockerfile (`$WORK/phibench-apptainer/defs/`); every Dockerfile check passed. Not yet a tool.
 - **Run (plan frozen first in `specs/apptainer-check-2026-11-23.json`), GPU 0, node idle before and after:** noop
   1.0056 reward 0, no hard fail (Enroot: 1.0075); oracle **1.2115**, no hard fail, reward 0.045 (Enroot calibration
   runs 1.1745-1.2051, anchor 1.201437). Both inside their pass marks. About 4 min 50 s per run, as with Enroot. One
   oracle run, so no spread; the anchor is unchanged.
-- Evidence: `/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-23-check/` (console logs, `/logs/verifier`).
+- Evidence: `$WORK/phibench-apptainer/runs/2026-11-23-check/` (console logs, `/logs/verifier`).
 - **Open:** a build tool that reads each task's Dockerfile, the other two tasks, and the agent step for a local model.
 
 ### 2026-11-23 — A local model as the solver: Qwen3.8-27B served next to the m256 task (first solver run invalid)
 
 - **Plan** (frozen first): `specs/qwen-agent-pilot-2026-11-23.json`. Scripts in
-  `/vast/users/qirong.ho/erland/phibench-apptainer/scripts/` (`serve_qwen.sh`, `score_once.sh`, `run_agent.py`,
+  `$WORK/phibench-apptainer/scripts/` (`serve_qwen.sh`, `score_once.sh`, `run_agent.py`,
   `final_score.sh`).
 - **Model server:** Qwen/Qwen3.8-27B (BF16, 27.8B parameters, 55.6 GB) on vLLM 0.32.0 from the pinned base SIF,
   tensor parallel 4 on GPUs 4-7, text only, context 131072. Ready in about 4.5 min; about 56 GB held per GPU; KV cache
@@ -153,9 +153,9 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 - **Interference, GPU 0, server up and idle on GPUs 4-7, GPUs 0-3 idle before and after:** noop 0.9945 reward 0
   (idle node 1.0056), oracle **1.2155** reward 0.063, no hard fail (idle node 1.2115). Both shifts are inside the
   spread of the Enroot calibration runs (1.1745-1.2051); the baseline was not slower (0.0461 ms against 0.0469 ms).
-  One run each. Evidence: `/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-23-qwen-interference/`.
+  One run each. Evidence: `$WORK/phibench-apptainer/runs/2026-11-23-qwen-interference/`.
 - **Solver run 1** on m256 (mini-swe-agent 2.4.6, GPU 0, 4 h limit) started 18:03 UTC:
-  `/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-23-qwen-m256-1/`. **Invalid as a score; kept.**
+  `$WORK/phibench-apptainer/runs/2026-11-23-qwen-m256-1/`. **Invalid as a score; kept.**
   - The solver ended at 20:36 UTC after 2 h 33 min and 26 model calls: one model request ran past litellm's default
     600 s client timeout. No edit to the working tree, no submission, no read of `/opt/loop/private`, `/tests` or
     the patches. It read the code, measured the baseline with its own script, and was profiling memory bandwidth.
@@ -173,11 +173,11 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
   `ROCM_ATTN` (the default, used in run 1) 24.1 tok/s at 6k context and 5.1 at 50k; `TRITON_ATTN` 49.8 and **40.8**;
   `ROCM_AITER_UNIFIED_ATTN` does not start on gfx90a. A third request (about 150k tokens) was over the 131k limit and
   refused, my mistake in sizing the prompt. Evidence:
-  `/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-24-decode-backends/`.
+  `$WORK/phibench-apptainer/runs/2026-11-24-decode-backends/`.
 - **Amended plan** `specs/qwen-agent-pilot-2026-11-24.json` (approved): `TRITON_ATTN`, 3600 s per model reply,
   and `/tests` created in the sandbox before the final score (checked: the bind works and is read-only).
 - **Solver run 2** on m256 started 2026-11-24 08:16 UTC:
-  `/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-24-qwen-m256-2/`.
+  `$WORK/phibench-apptainer/runs/2026-11-24-qwen-m256-2/`.
   - **Final score (node idle): speedup 1.1428, reward 0** (correct, every gate passed, no hard fail; anchor 1.201437,
     so below the reference). Baseline 0.0468 ms, candidate 0.0410 ms. One run.
   - The change: one tile-table entry in `configs.json` (the 256-token gate/up entry `N768`: `num_warps` 4 to 8,
@@ -193,9 +193,9 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 
 ### 2026-11-24 — Qwen Code as the harness: setup and compaction test (no timing)
 
-- **Install:** Qwen Code 0.28.4 (npm) in `/vast/users/qirong.ho/erland/agents/qwen-code` and Node.js 26.12.1 (official
-  build, SHA256 checked) in `/vast/users/qirong.ho/erland/agents/node`, mounted read-only at `/opt/agent` in the
-  task sandbox. Script: `/vast/users/qirong.ho/erland/phibench-apptainer/scripts/run_qwen_code.sh`. Settings: context
+- **Install:** Qwen Code 0.28.4 (npm) in `$WORK/agents/qwen-code` and Node.js 26.12.1 (official
+  build, SHA256 checked) in `$WORK/agents/node`, mounted read-only at `/opt/agent` in the
+  task sandbox. Script: `$WORK/phibench-apptainer/scripts/run_qwen_code.sh`. Settings: context
   window 131072, request timeout 1 h, usage statistics, telemetry and update checks off, web tools removed, raw API
   logging on. The server now runs with tool calls on (`--enable-auto-tool-choice --tool-call-parser qwen3_coder`).
 - **Setup failures on the way (kept in `runs/2026-11-24-qwen-code-compaction-test{,-2,-3}`):** `--writable` cannot
@@ -219,7 +219,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
   `score_once.sh` already used `--containall`, which includes `--pid`. Run 2's score is unaffected: the timer only
   writes files under `/app/.timer`.
 - **Solver run 3** (Qwen Code, plan `specs/qwen-code-run-2026-11-24.json`) started 2026-11-24 10:14 UTC:
-  `/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-24-qwen-code-m256-3/`.
+  `$WORK/phibench-apptainer/runs/2026-11-24-qwen-code-m256-3/`.
   - The session used the whole 4 h (stopped by the wall-time limit, exit 124): 484 model messages, 76 shell commands,
     60 file reads, 46 edits or writes. Auto-compaction ran 6 times, at 90k-99k prompt tokens, and the session went on
     after each one.
@@ -252,7 +252,7 @@ in the entries are commits of the GEAK repository. Add new entries at the end.
 
 - **Task:** upstream Phi-Bench revision `3bcefac`, `tasks/lh/wro-vllm-v1-priority-request-queue` (CPU only, Python;
   the vLLM V1 scheduler's priority queue, an unsorted list with an O(n) scan per pop; reference patch: `heapq`).
-  Downloaded unchanged (24 files) to `/vast/users/qirong.ho/erland/phibench-apptainer/upstream/3bcefac/`.
+  Downloaded unchanged (24 files) to `$WORK/phibench-apptainer/upstream/3bcefac/`.
 - **Upstream issues noticed, not changed:** `instruction.md` says matching the reference scores about 1.0 and a correct
   unoptimized submission about 0.5, but `compute_reward.py` gives 0 unless the speedup exceeds `ref_speedup` (1.0 at
   its square). `test.sh` takes one timing sample each of baseline and candidate. The timed workload is 4000 adds and a

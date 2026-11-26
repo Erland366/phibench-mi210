@@ -20,7 +20,7 @@
   "scrub": [
     ["the kernel GEAK optimizes", "the kernel to optimize"],
     ["a few round-2/3 table tiles", "a few table tiles"],
-    ["/data/erland/results/k2-mi210/", "recording-run/"]
+    ["$RESULTS/k2-mi210/", "recording-run/"]
   ],
   "banned_tokens": ["torch.matmul", "torch.mm(", "torch.bmm", "F.linear", "torch.einsum", "torch.ops.aten"],
   "correctness_seeds": [11, 12],

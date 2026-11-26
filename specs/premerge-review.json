@@ -64,7 +64,7 @@
       "status": "failed",
       "blocking": false,
       "note": "Too easy: the reference is an exact copy of the existing 8192 entry; the search's finalist scored 1.2516 with the verifier, above the anchor 1.249117. The user kept the row for now (2026-11-08); merging it needs a decision. Kept by the user's decision (2026-11-09); the README marks it too easy.",
-      "evidence": "/data/erland/results/phibench-search/m1024, verify-m1024"
+      "evidence": "$RESULTS/phibench-search/m1024, verify-m1024"
     },
     {
       "task": "mi210-jais3-moe-m1024",
@@ -80,7 +80,7 @@
       "status": "done",
       "blocking": true,
       "note": "Survived: 96 tries, nothing above 1.1x on its row; the finalist scored 0.998 with the verifier.",
-      "evidence": "/data/erland/results/phibench-search/m256, verify-m256"
+      "evidence": "$RESULTS/phibench-search/m256, verify-m256"
     },
     {
       "task": "mi210-jais3-moe-m256",
@@ -112,7 +112,7 @@
       "status": "done",
       "blocking": true,
       "note": "solve.sh landed the reference in the working tree; candidate scoring gave 1.2136 against the anchor 1.201437 (oracle runs 1.1745-1.2051), within about 1% (run-to-run and day-to-day spread). Run 2026-11-09 on an idle node under the GPU lock.",
-      "evidence": "/data/erland/results/phibench-calibration/mi210-jais3-moe-m256/solve-1"
+      "evidence": "$RESULTS/phibench-calibration/mi210-jais3-moe-m256/solve-1"
     },
     {
       "task": "mi210-jais3-moe-m1024",
@@ -120,7 +120,7 @@
       "status": "done",
       "blocking": true,
       "note": "solve.sh landed the reference in the working tree; candidate scoring gave 1.2403 against the anchor 1.249117 (oracle runs 1.2441-1.2521), within about 1% (run-to-run and day-to-day spread). Run 2026-11-09 on an idle node under the GPU lock.",
-      "evidence": "/data/erland/results/phibench-calibration/mi210-jais3-moe-m1024/solve-1"
+      "evidence": "$RESULTS/phibench-calibration/mi210-jais3-moe-m1024/solve-1"
     },
     {
       "task": "mi210-jais3-routed-moe-w8a16",
@@ -128,7 +128,7 @@
       "status": "done",
       "blocking": true,
       "note": "solve.sh landed the reference in the working tree; candidate scoring gave 1.1322 against the anchor 1.132514 (oracle runs 1.1320-1.1334), within about 1% (run-to-run and day-to-day spread). Run 2026-11-09 on an idle node under the GPU lock.",
-      "evidence": "/data/erland/results/phibench-calibration/mi210-jais3-routed-moe-w8a16/solve-1"
+      "evidence": "$RESULTS/phibench-calibration/mi210-jais3-routed-moe-w8a16/solve-1"
     },
     {
       "task": "mi210-jais3-routed-moe-w8a16",
@@ -136,7 +136,7 @@
       "status": "done",
       "blocking": false,
       "note": "The 2026-11-08 attempt shared the node and is not used. The second (07:49-08:36, node idle, GPU lock held): no-change 0.9988 reward 0, negative fails correctness, oracle 1.1334/1.1329/1.1320/1.1325/1.1322, anchor 1.132514 (was 1.130592 provisional). baseline2 (the later GEAK start) 1.1104.",
-      "evidence": "/data/erland/results/phibench-calibration/mi210-jais3-routed-moe-w8a16"
+      "evidence": "$RESULTS/phibench-calibration/mi210-jais3-routed-moe-w8a16"
     }
   ]
 }

@@ -1,0 +1,4 @@
+{
+ "RESULTS": "/path/to/results: the results folder on the MI210 node that runs GEAK and holds the rows",
+ "WORK": "/path/to/work: the work folder on the machine that serves the open models and runs the CPU tasks"
+}
