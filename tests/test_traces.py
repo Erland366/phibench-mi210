@@ -91,6 +91,27 @@ def test_paths_and_local_key_are_not_secrets(tmp_path):
     assert traces.find_secrets(f) == []
 
 
+def test_anchor_comes_from_the_file_task_toml_names(tmp_path):
+    d = make_task(tmp_path, 'cpu', 175.955891, 'AMD EPYC 9334')
+    (d / 'tests/ref_speedup.txt').unlink()
+    manifest = d / 'tests/verifier-correctness-manifest.json'
+    manifest.write_text(json.dumps({'ref_speedup': 175.955891, 'upstream_ref_speedup': 187.500717}))
+    toml = d / 'task.toml'
+    toml.write_text(toml.read_text().replace('tests/ref_speedup.txt', 'tests/verifier-correctness-manifest.json'))
+    facts = traces.task_facts(d)
+    assert facts['anchor'] == {'ref_speedup': 175.955891, 'upstream_ref_speedup': 187.500717,
+                               'evidence': str(manifest)}
+    # a package whose task.toml still holds another anchor (upstream's) says two things, and is refused
+    toml.write_text(toml.read_text().replace('ref_speedup = 175.955891', 'ref_speedup = 187.500717'))
+    with pytest.raises(traces.RecordError, match='must say one anchor'):
+        traces.task_facts(d)
+    # and so is one that is calibrated on a device not in the list
+    toml.write_text(toml.read_text().replace('ref_speedup = 187.500717', 'ref_speedup = 175.955891')
+                    .replace('AMD EPYC 9334', 'Intel Sapphire Rapids CPU lane'))
+    with pytest.raises(traces.RecordError, match='is not one of'):
+        traces.task_facts(d)
+
+
 def test_sheet_entry_must_be_complete():
     e = entry()
     del e['model']

@@ -89,8 +89,9 @@ def _device(value, where: str) -> dict:
 
 
 def task_facts(task_dir: Path) -> dict:
-    """What a Φ-Bench task package says about itself: the task's id, size and kind (task.toml), its anchor
-    (tests/ref_speedup.txt, which must agree with task.toml) and the hardware it is scored on."""
+    """What a Φ-Bench task package says about itself: the task's id, size and kind (task.toml), its anchor (the file
+    task.toml names in ref_speedup_source, which must agree with task.toml's ref_speedup) and the hardware it is
+    scored on (calibrated_on)."""
     import tomllib
     toml_path = task_dir / 'task.toml'
     if not toml_path.is_file():
@@ -102,13 +103,23 @@ def task_facts(task_dir: Path) -> dict:
     metric = t.get('primary_metric', {})
     anchor = {'ref_speedup': None, 'evidence': None}
     if task['kind'] == 'performance':
-        ref_file = task_dir / 'tests' / 'ref_speedup.txt'
+        source = metric.get('ref_speedup_source')
+        if not source or metric.get('ref_speedup') is None:
+            raise RecordError(f'{toml_path}: [primary_metric] needs ref_speedup and ref_speedup_source')
+        ref_file = task_dir / source
         if not ref_file.is_file():
-            raise RecordError(f'{task_dir}: a performance task needs tests/ref_speedup.txt')
-        ref = float(ref_file.read_text().split()[0])
-        if metric.get('ref_speedup') is not None and abs(float(metric['ref_speedup']) - ref) > 1e-9:
-            raise RecordError(f'{task_dir}: tests/ref_speedup.txt says {ref}, task.toml says {metric["ref_speedup"]}')
-        anchor = {'ref_speedup': ref, 'evidence': str(ref_file)}
+            raise RecordError(f'{task_dir}: task.toml names {source} as its anchor file, which does not exist')
+        if ref_file.suffix == '.json':  # a verifier manifest: {"ref_speedup": ..., "upstream_ref_speedup": ...}
+            manifest = _read_json(ref_file)
+            ref = float(manifest['ref_speedup'])
+            if manifest.get('upstream_ref_speedup') is not None:
+                anchor['upstream_ref_speedup'] = float(manifest['upstream_ref_speedup'])
+        else:
+            ref = float(ref_file.read_text().split()[0])
+        if abs(float(metric['ref_speedup']) - ref) > 1e-9:
+            raise RecordError(f'{task_dir}: {source} says {ref}, task.toml says {metric["ref_speedup"]}; the package '
+                              'must say one anchor')
+        anchor.update(ref_speedup=ref, evidence=str(ref_file))
     device = metric.get('calibrated_on')
     if device is None:
         raise RecordError(f'{toml_path}: [primary_metric] calibrated_on is missing; it names the scoring hardware')
