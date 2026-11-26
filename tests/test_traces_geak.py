@@ -93,7 +93,7 @@ def geak_entry(run, rc, prov, **over):
     e = {'record_id': 'geak-moe-v2', 'source': 'geak_run', 'run_dir': str(run),
          'task': {'id': 'mi210-jais3-routed-moe-w8a16', 'bench': 'lh', 'kind': 'performance',
                   'origin': 'Erland/phibench-mi210-rows 323e515'},
-         'agent': {'harness': 'geak'}, 'model': {'name': 'claude-opus-5-5'}, 'hardware': {'scored_on': 'MI210'},
+         'agent': {'harness': 'geak'}, 'model': {'name': 'claude-opus-5-5'}, 'hardware': {'scored_on': {'device': 'AMD Instinct MI210', 'count': 1}},
          'anchor': {'ref_speedup': None}, 'prompt_vs_task': 'same problem, other prompt', 'evidence': {'kind': 'round_check', 'dir': str(rc)},
          'row': {'provenance': str(prov)}}
     e.update(over)

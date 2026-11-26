@@ -4,6 +4,7 @@ import json
 import pytest
 
 from phibench_mi210 import traces
+from task_package import make_task
 
 
 def line(obj):
@@ -51,8 +52,7 @@ def session(tmp_path):
     (subs / 'agent-bench-1.meta.json').write_text(json.dumps({'name': 'bench'}))
     (subs / 'agent-notes-2.jsonl').write_text(  # started after the slice ended: not part of this work
         line({'type': 'user', 'timestamp': '2026-11-20T11:05:00Z', 'message': {'role': 'user', 'content': 'notes'}}))
-    task = tmp_path / 'tasks/mi210-jais3-moe-m256'
-    task.mkdir(parents=True)
+    task = make_task(tmp_path, 'mi210-jais3-moe-m256', 1.201437, 'AMD Instinct MI210', gpus=1)
     (task / 'oracle.patch').write_text('+ 256 entry\n')
     return s, task
 
@@ -60,11 +60,9 @@ def session(tmp_path):
 def entry(s, task, **over):
     e = {'record_id': '2026-11-20-claude-code-m256', 'source': 'claude_code_session', 'run_dir': str(s.parent),
          'session': str(s), 'slice': {'from_uuid': 'u1', 'to_uuid': 'a3'},
-         'task': {'id': 'mi210-jais3-moe-m256', 'bench': 'lh', 'kind': 'performance',
-                  'origin': 'Erland/phibench-mi210-rows'},
+         'task_dir': str(task), 'task': {'origin': 'Erland/phibench-mi210-rows'},
          'agent': {'harness': 'claude-code', 'version': '2.9.1'}, 'model': {'name': 'claude-opus-5-5'},
-         'hardware': {'scored_on': '1 x MI210'}, 'anchor': {'ref_speedup': 1.201437},
-         'prompt_vs_task': 'same problem, other prompt', 'reference': {'task_dir': str(task)}}
+         'hardware': {}, 'prompt_vs_task': 'same problem, other prompt'}
     e.update(over)
     return e
 
@@ -119,9 +117,12 @@ def test_slice_must_start_at_a_request(tmp_path, session):
 
 
 def test_session_needs_its_task_package(tmp_path, session):
-    s, _ = session
-    with pytest.raises(traces.RecordError, match='oracle.patch'):
+    s, task = session
+    with pytest.raises(traces.RecordError, match='task.toml'):
         traces.convert({'machine': 'm', 'runs': [entry(s, tmp_path / 'nowhere')]}, tmp_path / 'ds')
+    (task / 'oracle.patch').unlink()
+    with pytest.raises(traces.RecordError, match='oracle.patch'):
+        traces.convert({'machine': 'm', 'runs': [entry(s, task)]}, tmp_path / 'ds')
 
 
 def test_secret_in_the_slice_is_refused(tmp_path, session):
@@ -132,15 +133,17 @@ def test_secret_in_the_slice_is_refused(tmp_path, session):
     assert not (tmp_path / 'ds/records/2026-11-20-claude-code-m256').exists()
 
 
-def test_example_run_sheet_has_every_field_each_entry_needs():
+def test_example_run_sheet_passes_the_sheet_check(tmp_path):
     from pathlib import Path
     sheet = json.loads((Path(__file__).parent.parent / 'specs/examples/run-sheet-example.json').read_text())
     assert {e['source'] for e in sheet['runs']} == {'claude_code_session', 'open_model_run', 'geak_run'}
     for e in sheet['runs']:
-        traces.check_sheet_entry(e)
+        # the example's task packages live on the run machines; check every other field against a stand-in package
+        stand_in = make_task(tmp_path / e['record_id'], 'stand-in', 1.5, 'AMD Instinct MI210', gpus=1)
+        traces.check_sheet_entry({**e, 'task_dir': str(stand_in)})
         assert (e['source'], e['agent']['harness']) in traces.ADAPTERS
     session = [e for e in sheet['runs'] if e['source'] == 'claude_code_session'][0]
-    assert {'session', 'slice', 'reference', 'prompt_vs_task'} <= set(session)
+    assert {'session', 'slice', 'task_dir', 'prompt_vs_task'} <= set(session)
 
 
 def test_codex_session_is_refused_with_its_reason(tmp_path, session):

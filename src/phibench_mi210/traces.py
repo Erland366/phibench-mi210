@@ -35,7 +35,7 @@ SECRET_PATTERNS = {
     'private_key_block': re.compile(rb'-----BEGIN [A-Z ]*PRIVATE KEY-----'),
 }
 
-REQUIRED_SHEET_FIELDS = ('record_id', 'source', 'run_dir', 'task', 'agent', 'model', 'hardware', 'anchor')
+REQUIRED_SHEET_FIELDS = ('record_id', 'source', 'run_dir', 'agent', 'model', 'hardware')
 REQUIRED_TASK_FIELDS = ('id', 'bench', 'kind', 'origin')
 
 
@@ -71,19 +71,117 @@ def label(reward: float | None, invalid_reason: str | None) -> str:
     return 'successful' if reward > 0 else 'unsuccessful'
 
 
-def check_sheet_entry(entry: dict) -> None:
+# Fixed choices in a run sheet (sheet format 2). A new device, model or server is added here on purpose.
+DEVICES = ('AMD Instinct MI210', 'AMD EPYC 9334')
+MODEL_NAMES = ('Qwen3.8-27B', 'claude-opus-5-5')
+SERVERS = ('vLLM',)
+SELF_SERVED = ('open_model_run',)  # the sources whose model we served ourselves (served_on, served_by)
+
+
+def _device(value, where: str) -> dict:
+    if not isinstance(value, dict) or set(value) != {'device', 'count'}:
+        raise RecordError(f'{where} must be {{"device": one of {DEVICES}, "count": <whole number>}}')
+    if value['device'] not in DEVICES:
+        raise RecordError(f'{where}: device {value["device"]!r} is not one of {DEVICES}')
+    if not isinstance(value['count'], int) or isinstance(value['count'], bool) or value['count'] < 1:
+        raise RecordError(f'{where}: count must be a whole number of at least 1')
+    return dict(value)
+
+
+def task_facts(task_dir: Path) -> dict:
+    """What a Φ-Bench task package says about itself: the task's id, size and kind (task.toml), its anchor
+    (tests/ref_speedup.txt, which must agree with task.toml) and the hardware it is scored on."""
+    import tomllib
+    toml_path = task_dir / 'task.toml'
+    if not toml_path.is_file():
+        raise RecordError(f'{task_dir}: no task.toml; task_dir must name a Φ-Bench task package')
+    t = tomllib.loads(toml_path.read_text())
+    task = {k: t.get('task', {}).get(k) for k in ('id', 'bench', 'kind')}
+    if None in task.values():
+        raise RecordError(f'{toml_path}: [task] needs id, bench and kind')
+    metric = t.get('primary_metric', {})
+    anchor = {'ref_speedup': None, 'evidence': None}
+    if task['kind'] == 'performance':
+        ref_file = task_dir / 'tests' / 'ref_speedup.txt'
+        if not ref_file.is_file():
+            raise RecordError(f'{task_dir}: a performance task needs tests/ref_speedup.txt')
+        ref = float(ref_file.read_text().split()[0])
+        if metric.get('ref_speedup') is not None and abs(float(metric['ref_speedup']) - ref) > 1e-9:
+            raise RecordError(f'{task_dir}: tests/ref_speedup.txt says {ref}, task.toml says {metric["ref_speedup"]}')
+        anchor = {'ref_speedup': ref, 'evidence': str(ref_file)}
+    device = metric.get('calibrated_on')
+    if device is None:
+        raise RecordError(f'{toml_path}: [primary_metric] calibrated_on is missing; it names the scoring hardware')
+    gpus = t.get('environment', {}).get('gpus') or 0
+    scored = _device({'device': device, 'count': gpus if gpus and 'Instinct' in device else 1},
+                     f'{toml_path} calibrated_on')
+    return {'task': task, 'anchor': anchor, 'scored_on': scored}
+
+
+def check_sheet_entry(entry: dict) -> dict:
+    """Check one run sheet entry and return it with the facts that come from its task package filled in. A run on
+    a Φ-Bench task names the package (task_dir), and the task's id, size, kind, anchor and scoring hardware are read
+    from it, never typed again; a run with no Φ-Bench task (an unsuccessful GEAK run) states them itself."""
+    rid = entry.get('record_id', '?')
     missing = [k for k in REQUIRED_SHEET_FIELDS if k not in entry]
     if missing:
-        raise RecordError(f'sheet entry {entry.get("record_id", "?")}: missing {missing}')
-    if entry['source'] not in SOURCES:
-        raise RecordError(f'{entry["record_id"]}: source {entry["source"]!r} is not one of {SOURCES}')
-    missing = [k for k in REQUIRED_TASK_FIELDS if k not in entry['task']]
-    if missing:
-        raise RecordError(f'{entry["record_id"]}: task is missing {missing}')
-    if entry['task']['kind'] not in ('performance', 'implementation'):
-        raise RecordError(f'{entry["record_id"]}: task kind must be performance or implementation')
+        raise RecordError(f'sheet entry {rid}: missing {missing}')
     if not re.fullmatch(r'[A-Za-z0-9._-]+', entry['record_id']):
         raise RecordError(f'record_id {entry["record_id"]!r}: use letters, digits, ".", "_" and "-" only')
+    if entry['source'] not in SOURCES:
+        raise RecordError(f'{rid}: source {entry["source"]!r} is not one of {SOURCES}')
+    e = json.loads(json.dumps(entry))
+    hardware, model = e['hardware'], e['model']
+    if not isinstance(hardware, dict) or set(hardware) - {'served_on', 'scored_on'}:
+        raise RecordError(f'{rid}: hardware takes only served_on and scored_on; put details in notes')
+    if e.get('task_dir'):
+        repeated = ([f'task.{k}' for k in ('id', 'bench', 'kind') if k in (e.get('task') or {})]
+                    + (['anchor'] if 'anchor' in e else []) + (['hardware.scored_on'] if 'scored_on' in hardware else []))
+        if repeated:
+            raise RecordError(f'{rid}: {repeated} come from the task package in task_dir; remove them from the sheet')
+        facts = task_facts(Path(e['task_dir']))
+        origin = (e.get('task') or {}).get('origin')
+        if not origin:
+            raise RecordError(f'{rid}: task.origin (the dataset and its revision) is required')
+        e['task'] = {**facts['task'], 'origin': origin, 'task_dir': e['task_dir']}
+        e['anchor'] = facts['anchor']
+        hardware['scored_on'] = facts['scored_on']
+    elif e['source'] != 'geak_run':
+        raise RecordError(f'{rid}: task_dir (the Φ-Bench task package the run was on) is required; only a GEAK run '
+                          'with no Φ-Bench task states its task itself')
+    else:
+        if 'task' not in e or 'anchor' not in e or 'scored_on' not in hardware:
+            raise RecordError(f'{rid}: give task_dir (the Φ-Bench task package), or, for a run with no Φ-Bench task, '
+                              'task, anchor and hardware.scored_on')
+        missing = [k for k in REQUIRED_TASK_FIELDS if k not in e['task']]
+        if missing:
+            raise RecordError(f'{rid}: task is missing {missing}')
+    if e['task']['kind'] not in ('performance', 'implementation'):
+        raise RecordError(f'{rid}: task kind must be performance or implementation')
+    hardware['scored_on'] = _device(hardware['scored_on'], f'{rid}: hardware.scored_on')
+    self_served = e['source'] in SELF_SERVED
+    if self_served:
+        hardware['served_on'] = _device(hardware.get('served_on'), f'{rid}: hardware.served_on')
+    elif hardware.get('served_on') is not None:
+        raise RecordError(f'{rid}: hardware.served_on is only for a model we served ourselves ({SELF_SERVED})')
+    else:
+        hardware['served_on'] = None
+    if not isinstance(model, dict) or set(model) - {'name', 'precision', 'served_by'}:
+        raise RecordError(f'{rid}: model takes only name, precision and served_by; put details in notes')
+    if model.get('name') not in MODEL_NAMES:
+        raise RecordError(f'{rid}: model.name {model.get("name")!r} is not one of {MODEL_NAMES}')
+    if self_served:
+        sb = model.get('served_by')
+        if not model.get('precision') or not isinstance(sb, dict) or set(sb) != {'server', 'version', 'settings'}:
+            raise RecordError(f'{rid}: a model we served needs precision and served_by {{"server", "version", '
+                              '"settings"}')
+        if sb['server'] not in SERVERS:
+            raise RecordError(f'{rid}: model.served_by.server {sb["server"]!r} is not one of {SERVERS}')
+    elif model.get('served_by') is not None or model.get('precision') is not None:
+        raise RecordError(f'{rid}: precision and served_by are only for a model we served ourselves')
+    else:
+        model['precision'], model['served_by'] = None, None
+    return e
 
 
 class RecordBuilder:
@@ -976,10 +1074,10 @@ def convert_claude_code_session(entry: dict, builder: 'RecordBuilder', record: d
     if not sl.get('from_uuid'):
         raise RecordError(f'{entry["record_id"]}: "slice": {{"from_uuid": ..., "to_uuid": ...}} is required; list the '
                           'requests of the session with "session-requests"')
-    ref = Path((entry.get('reference') or {}).get('task_dir') or '')
-    if not (ref / 'oracle.patch').is_file():
-        raise RecordError(f'{entry["record_id"]}: "reference": {{"task_dir": <the task package>}} must name the task '
-                          'whose oracle.patch is this session\'s result (ADR 0008: the row comes first)')
+    ref = Path(entry.get('task_dir') or '')
+    if not entry.get('task_dir') or not (ref / 'oracle.patch').is_file():
+        raise RecordError(f'{entry["record_id"]}: task_dir must name the task package whose oracle.patch is this '
+                          'session\'s result (ADR 0008: the row comes first)')
     data, cut = cut_session(session, sl['from_uuid'], sl.get('to_uuid'))
     version = entry['agent'].get('version')
     if version is not None and version not in cut['versions']:
@@ -1039,7 +1137,7 @@ ADAPTERS = {
 
 
 def _convert_one(entry: dict, out: Path, machine: str) -> None:
-    check_sheet_entry(entry)
+    entry = check_sheet_entry(entry)
     # How the prompt the agent saw relates to the task the record is for (ADR 0010): an open model was given the
     # task's own instruction; a GEAK run had GEAK's prompt, for the same problem or (a row made from one piece of its
     # result) for a different, larger one.

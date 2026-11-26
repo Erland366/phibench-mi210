@@ -4,6 +4,7 @@ import json
 import pytest
 
 from phibench_mi210 import traces
+from task_package import make_task
 
 SYS = {'role': 'system', 'content': 'You are Qwen Code.'}
 TASK = {'role': 'user', 'content': [{'type': 'text', 'text': 'reminder'}, {'type': 'text', 'text': 'Make it faster.'}]}
@@ -175,13 +176,14 @@ def qwen_run(tmp_path):
     return run
 
 
-def sheet_entry(run, **over):
-    e = {'record_id': run.name, 'source': 'open_model_run', 'run_dir': str(run),
-         'task': {'id': 'wro-causal-delivery-vclock', 'bench': 'lh', 'kind': 'performance',
-                  'origin': 'upstream Phi-Bench 3bcefac'},
-         'agent': {'harness': 'qwen-code'}, 'model': {'name': 'Qwen3.8-27B', 'precision': 'bf16'},
-         'hardware': {'scored_on': 'AMD EPYC 9334'},
-         'anchor': {'ref_speedup': 175.96, 'evidence': 'runs/2026-11-25-x-calibration'},
+def sheet_entry(run, ref=175.96, **over):
+    task = make_task(run.parent / 'local' / str(ref), 'wro-causal-delivery-vclock', ref, 'AMD EPYC 9334')
+    e = {'record_id': run.name, 'source': 'open_model_run', 'run_dir': str(run), 'task_dir': str(task),
+         'task': {'origin': 'upstream Phi-Bench 3bcefac'},
+         'agent': {'harness': 'qwen-code'},
+         'model': {'name': 'Qwen3.8-27B', 'precision': 'bf16',
+                   'served_by': {'server': 'vLLM', 'version': '0.32.0', 'settings': 'tensor parallel 4'}},
+         'hardware': {'served_on': {'device': 'AMD Instinct MI210', 'count': 4}},
          'serving_log': str(run.parent / 'logs/serve-qwen-x-20261125T2127.log'),
          'submission_timing': 'checked'}
     e.update(over)
@@ -225,7 +227,7 @@ def test_viewer_rows_have_one_shape(tmp_path, qwen_run):
 
 
 def test_anchor_mismatch_is_refused(tmp_path, qwen_run):
-    e = sheet_entry(qwen_run, anchor={'ref_speedup': 322.07})
+    e = sheet_entry(qwen_run, ref=322.07)
     with pytest.raises(traces.RecordError, match='ref_speedup'):
         traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
 
@@ -295,7 +297,7 @@ def test_never_submitted_run_measured_its_working_tree(tmp_path, qwen_run):
 
 def test_keep_going_converts_the_rest_and_lists_refusals(tmp_path, qwen_run):
     good = sheet_entry(qwen_run)
-    bad = sheet_entry(qwen_run, record_id='bad-run', anchor={'ref_speedup': 1.0})
+    bad = sheet_entry(qwen_run, record_id='bad-run', ref=1.0)
     out = tmp_path / 'ds'
     r = traces.convert({'machine': 'm', 'runs': [bad, good]}, out, keep_going=True)
     assert r['written'] == [qwen_run.name] and r['refused'][0][0] == 'bad-run'
@@ -307,7 +309,7 @@ def test_keep_going_converts_the_rest_and_lists_refusals(tmp_path, qwen_run):
 
 def test_cli_exits_2_when_a_run_is_refused(tmp_path, qwen_run):
     sheet = tmp_path / 'sheet.json'
-    sheet.write_text(json.dumps({'machine': 'm', 'runs': [sheet_entry(qwen_run, anchor={'ref_speedup': 1.0})]}))
+    sheet.write_text(json.dumps({'machine': 'm', 'runs': [sheet_entry(qwen_run, ref=1.0)]}))
     assert traces.main(['convert', '--sheet', str(sheet), '--out', str(tmp_path / 'ds')]) == 2
 
 

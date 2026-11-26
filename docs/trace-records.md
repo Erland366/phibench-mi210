@@ -26,30 +26,40 @@ turned into a row yet (the attention and MoVA runs, for example) keep their conv
 ## Converting: the run sheet
 
 `python -m phibench_mi210.traces convert --sheet SHEET.json --out DATASET` converts the runs a sheet lists; `index
---out DATASET` rebuilds `index.jsonl`. The sheet holds what a run folder does not say itself:
+--out DATASET` rebuilds `index.jsonl`. The sheet holds what a run folder does not say itself, and nothing the task
+package says (sheet format 2, 2026-11-26; `specs/examples/run-sheet-example.json` has one entry of each kind):
 
 ```json
 {"machine": "auh7-1b-gpu-240",
  "runs": [{"record_id": "2026-11-25-qwen-code-causal-delivery-vclock-1", "source": "open_model_run",
            "run_dir": ".../runs/2026-11-25-qwen-code-causal-delivery-vclock-1",
-           "task": {"id": "wro-causal-delivery-vclock-coupled-loop16", "bench": "lh", "kind": "performance",
-                    "origin": "upstream Phi-Bench 3bcefac"},
+           "task_dir": ".../local/wro-causal-delivery-vclock-coupled-epyc9334",
+           "task": {"origin": "upstream Phi-Bench 3bcefac, recalibrated on the AMD EPYC 9334"},
            "agent": {"harness": "qwen-code"},
-           "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0, TP4, 131072 context"},
-           "hardware": {"served_on": "4 x MI210", "scored_on": "AMD EPYC 9334"},
-           "anchor": {"ref_speedup": 175.96, "evidence": ".../runs/2026-11-25-...-calibration"},
+           "model": {"name": "Qwen3.8-27B", "precision": "bf16",
+                     "served_by": {"server": "vLLM", "version": "0.32.0", "settings": "tensor parallel 4, ..."}},
+           "hardware": {"served_on": {"device": "AMD Instinct MI210", "count": 4}},
            "serving_log": ".../logs/serve-qwen-...-20261125T2127.log",
            "job_log": ".../runs/2026-11-25-qwen-code-causal-delivery-vclock-1.job.log",
            "submission_timing": "checked", "unclean_submissions": {},
            "invalid_reason": null, "invalid_scores": [], "notes": ""}]}
 ```
 
+From `task_dir` the converter reads the task's `id`, `bench` and `kind` (`task.toml` `[task]`), the anchor
+(`tests/ref_speedup.txt`, which must agree with `task.toml`'s `ref_speedup`) and `hardware.scored_on`
+(`[primary_metric] calibrated_on`, with `[environment] gpus` as the count for a GPU), and refuses a sheet entry that
+repeats any of them. `model.name`, the devices and `served_by.server` are fixed choices (`MODEL_NAMES`, `DEVICES` and
+`SERVERS` in `traces.py`); anything else is refused, and details such as which GPUs go in `notes`. `served_on`,
+`precision` and `served_by` are for a model we served ourselves (`open_model_run`) and are refused for a Claude or
+Codex session. Only a GEAK run with no Φ-Bench task leaves out `task_dir` and gives `task` (`id`, `bench`, `kind`,
+`origin`), `anchor` and `hardware.scored_on` itself.
+
 The converter checks the sheet against the run: the harness version and the anchor the final score used must match
 what the sheet says, or it refuses. `submission_timing: "checked"` means someone checked each in-session timing for a
 shared machine; the ones that were shared go in `unclean_submissions` (`{"<n>": "<reason>"}`). Without it, every
 submission's `timing_clean` is unknown (`null`). A thrown-away final score goes in `invalid_scores`
-(`[{"dir": "final-busy", "reason": "..."}]`). Readers exist for `open_model_run` with Qwen Code and mini-swe-agent, and for `geak_run`;
-others (a person's Claude Code or Codex session) are refused by name until they are written.
+(`[{"dir": "final-busy", "reason": "..."}]`). Readers exist for `open_model_run` with Qwen Code and mini-swe-agent,
+for `geak_run`, and for `claude_code_session`; a Codex session is refused by name until its reader is written.
 
 A GEAK run's sheet entry has `"agent": {"harness": "geak"}` and names its evidence and, for a successful run, its
 row (ADR 0010):
@@ -126,8 +136,8 @@ GEAK stops and closes its remaining steps) is kept and marked `synthetic: true`;
 For a person's own Claude Code session (source `claude_code_session`, harness `claude-code`), the sheet entry also
 gives `session` (the session file), `slice` (`from_uuid`, the person's request for the work, and `to_uuid`, the last
 line of the work, or left out for the end of the file; `python -m phibench_mi210.traces session-requests --session
-<file>` lists the requests with their uuids) and `reference` (`task_dir`, the task package whose `oracle.patch` is the
-session's result). The record holds:
+<file>` lists the requests with their uuids); its `task_dir` is the task package whose `oracle.patch` is the session's
+result. The record holds:
 
 ```
   conversation/raw/claude/<session>.slice.jsonl   the slice: the session's original lines, byte for byte
@@ -158,11 +168,11 @@ what the final score measured.
 | Field | Holds |
 |---|---|
 | `record_id`, `source` | as above |
-| `task` | `id`, `bench`, `kind` (`performance` or `implementation`), `origin` (which dataset and revision, for example upstream Φ-Bench `3bcefac` or `Erland/phibench-mi210-rows` `323e515`), and `prompt_vs_task`: `instruction` when the agent was given the task's own `instruction.md` (every open-model run), `same problem, other prompt` (a GEAK run on its own task, with GEAK's prompt), or `different problem` (a row made from one piece of a GEAK run's result, such as m256 and m1024, whose conversation worked on the whole layer); filter on it before training |
+| `task` | `task_dir` (the task package the facts were read from, when there is one), `id`, `bench`, `kind` (`performance` or `implementation`), `origin` (which dataset and revision, for example upstream Φ-Bench `3bcefac` or `Erland/phibench-mi210-rows` `323e515`), and `prompt_vs_task`: `instruction` when the agent was given the task's own `instruction.md` (every open-model run), `same problem, other prompt` (a GEAK run on its own task, with GEAK's prompt), or `different problem` (a row made from one piece of a GEAK run's result, such as m256 and m1024, whose conversation worked on the whole layer); filter on it before training |
 | `agent` | harness and version (for example Qwen Code 0.28.4), its settings file |
-| `model` | name (for example Qwen3.8-27B), precision, how it was served (vLLM version, GPUs, context length) |
-| `hardware` | where the run and its score happened (for example 4 × MI210 serving, scored on AMD EPYC 9334) |
-| `anchor` | the `ref_speedup` the score used, where it was measured and the path of its evidence (upstream's; ours from this repo's calibration; or a local recalibration on the scoring machine, which keeps upstream's value as `upstream_ref_speedup`) |
+| `model` | `name` (one of `MODEL_NAMES`), and for a model we served `precision` and `served_by` (`server`, `version`, `settings`); both `null` for a Claude or Codex session |
+| `hardware` | `served_on` (`{"device", "count"}` for a model we served, `null` otherwise) and `scored_on` (`{"device", "count"}`, from the task package); `device` is one of `DEVICES` |
+| `anchor` | the `ref_speedup` the score used and `evidence`, the task package's `tests/ref_speedup.txt`; `null` for a GEAK run with no Φ-Bench task |
 | `time` | started, finished, wall-clock limit |
 | `outcome` | `label` (`successful`, `unsuccessful`, `invalid` or `unscored`), `reward`, `speedup`, `correctness_ok`, `hard_fail_reasons`, `invalid_reason`, the harness exit code, whether the final tree was the winning submission or the starting code, the path of the counted verifier output, and `invalid_scores` (thrown-away scores with their reasons) |
 | `submissions` | per submission: number, speedup, reward, correctness, hard-fail reasons, diff path, and `timing_clean` (false when the machine was shared during that timing, with the reason) |

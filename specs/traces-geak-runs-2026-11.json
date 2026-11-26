@@ -1,236 +1,224 @@
 {
-  "about": "Run sheet for the GEAK runs on node 303 (ADR 0010): the source runs of the three MI210 rows (successful, each judged on the evidence its row was accepted on) and the GEAK runs that were not fast enough (unsuccessful, no row). Pilot, probe and smoke runs are not attempts and are left out. Written 2026-11-26. Convert with: python -m phibench_mi210.traces convert --sheet specs/traces-geak-runs-2026-11.json --out <dataset folder>.",
-  "machine": "auh7-4b-gpu-303",
-  "runs": [
-    {
-      "record_id": "2026-10-29-geak-jais3-moe-v2-v032-01",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-moe-v2-v032-01",
-      "task": {
-        "id": "mi210-jais3-routed-moe-w8a16",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "Erland/phibench-mi210-rows 323e515"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "1 x AMD Instinct MI210 (Round check)"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "round_check",
-        "dir": "/data/erland/results/geak-agent/jais3-moe-v2-v032-01.round-check-current"
-      },
-      "row": {
-        "provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-routed-moe-w8a16.json"
-      },
-      "notes": "source run of the combined row; GEAK stopped before writing its final patch (status incomplete), so the Round check measured the current-best files",
-      "prompt_vs_task": "same problem, other prompt"
-    },
-    {
-      "record_id": "2026-10-27-geak-jais3-moe-v032-01-m256",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-moe-v032-01",
-      "task": {
-        "id": "mi210-jais3-moe-m256",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "Erland/phibench-mi210-rows 323e515"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "1 x AMD Instinct MI210 (Round check of the piece)"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "piece",
-        "scores": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/scores.json",
-        "piece": "e2-m256-decode",
-        "work_dir": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/e2-m256-decode/work",
-        "plan": "specs/jais3-moe-w8a16-v032-v2/pieces_single_rows_rerun.json"
-      },
-      "row": {
-        "provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-moe-m256.json"
-      },
-      "run_result": {
-        "dir": "/data/erland/results/geak-agent/jais3-moe-v032-01.round-check-final",
-        "note": "the run's whole result (whole MoE layer) was 1.094x, below the 1.1x rule; this one table entry passed alone on its row"
-      },
-      "notes": "the reference solution is one table entry of this run's result (the 256 decode entry); the v2 GEAK run later started from this run's result",
-      "prompt_vs_task": "different problem"
-    },
-    {
-      "record_id": "2026-10-27-geak-jais3-moe-v032-01-m1024",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-moe-v032-01",
-      "task": {
-        "id": "mi210-jais3-moe-m1024",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "Erland/phibench-mi210-rows 323e515"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "1 x AMD Instinct MI210 (Round check of the piece)"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "piece",
-        "scores": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/scores.json",
-        "piece": "e1-m1024-tiles",
-        "work_dir": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/e1-m1024-tiles/work",
-        "plan": "specs/jais3-moe-w8a16-v032-v2/pieces_single_rows_rerun.json"
-      },
-      "row": {
-        "provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-moe-m1024.json"
-      },
-      "run_result": {
-        "dir": "/data/erland/results/geak-agent/jais3-moe-v032-01.round-check-final",
-        "note": "the run's whole result (whole MoE layer) was 1.094x, below the 1.1x rule; this one table entry passed alone on its row"
-      },
-      "notes": "the reference solution is one table entry of this run's result (the 1024 tile entry); this row is marked too easy (a no-insight search found it)",
-      "prompt_vs_task": "different problem"
-    },
-    {
-      "record_id": "2026-10-27-geak-jais3-mova-v032-01",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-mova-v032-01",
-      "task": {
-        "id": "geak:jais3-mova-gemm-v032",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "GEAK task, no Phi-Bench row"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "1 x AMD Instinct MI210 (Round check)"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "round_check",
-        "dir": "/data/erland/results/geak-agent/jais3-mova-v032-01.round-check-final"
-      },
-      "prompt_vs_task": "same problem, other prompt"
-    },
-    {
-      "record_id": "2026-10-29-geak-jais3-mova-v2-v032-01",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-mova-v2-v032-01",
-      "task": {
-        "id": "geak:jais3-mova-gemm-v032-v2",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "GEAK task, no Phi-Bench row"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "1 x AMD Instinct MI210 (Round check)"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "round_check",
-        "dir": "/data/erland/results/geak-agent/jais3-mova-v2-v032-01.round-check-current"
-      },
-      "prompt_vs_task": "same problem, other prompt"
-    },
-    {
-      "record_id": "2026-10-27-geak-jais3-attn-v032-01",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-attn-v032-01",
-      "task": {
-        "id": "geak:jais3-attention-decode-v032",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "GEAK task, no Phi-Bench row"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "1 x AMD Instinct MI210 (Round check)"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "round_check",
-        "dir": "/data/erland/results/geak-agent/jais3-attn-v032-01.round-check"
-      },
-      "prompt_vs_task": "same problem, other prompt"
-    },
-    {
-      "record_id": "2026-10-29-geak-jais3-attn-v032-02",
-      "source": "geak_run",
-      "run_dir": "/data/erland/results/geak-agent/jais3-attn-v032-02",
-      "task": {
-        "id": "geak:jais3-attention-decode-v032",
-        "bench": "lh",
-        "kind": "performance",
-        "origin": "GEAK task, no Phi-Bench row"
-      },
-      "agent": {
-        "harness": "geak"
-      },
-      "model": {
-        "name": "claude-opus-5-5"
-      },
-      "hardware": {
-        "measured_on": "none: there was no candidate to measure"
-      },
-      "anchor": {
-        "ref_speedup": null,
-        "note": "a GEAK run is labeled by the Round check, not by an anchor"
-      },
-      "evidence": {
-        "kind": "round_check",
-        "dir": "/data/erland/results/geak-agent/jais3-attn-v032-02.round-check-final"
-      },
-      "notes": "GEAK ran fully but committed nothing (empty final patch): unsuccessful, not invalid (user, 2026-11-26)",
-      "prompt_vs_task": "same problem, other prompt"
+ "about": "Run sheet for the GEAK runs on node 303 (ADR 0010): the source runs of the three MI210 rows (successful, each judged on the evidence its row was accepted on) and the GEAK runs that were not fast enough (unsuccessful, no row). Pilot, probe and smoke runs are not attempts and are left out. Written 2026-11-26. Convert with: python -m phibench_mi210.traces convert --sheet specs/traces-geak-runs-2026-11.json --out <dataset folder>.",
+ "machine": "auh7-4b-gpu-303",
+ "runs": [
+  {
+   "record_id": "2026-10-29-geak-jais3-moe-v2-v032-01",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-moe-v2-v032-01",
+   "task_dir": "/data/erland/results/phibench-rows/tasks/lh/mi210-jais3-routed-moe-w8a16",
+   "task": {
+    "origin": "Erland/phibench-mi210-rows 323e515"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "evidence": {
+    "kind": "round_check",
+    "dir": "/data/erland/results/geak-agent/jais3-moe-v2-v032-01.round-check-current"
+   },
+   "row": {
+    "provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-routed-moe-w8a16.json"
+   },
+   "notes": "source run of the combined row; GEAK stopped before writing its final patch (status incomplete), so the Round check measured the current-best files",
+   "prompt_vs_task": "same problem, other prompt",
+   "hardware": {}
+  },
+  {
+   "record_id": "2026-10-27-geak-jais3-moe-v032-01-m256",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-moe-v032-01",
+   "task_dir": "/data/erland/results/phibench-rows/tasks/lh/mi210-jais3-moe-m256",
+   "task": {
+    "origin": "Erland/phibench-mi210-rows 323e515"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "evidence": {
+    "kind": "piece",
+    "scores": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/scores.json",
+    "piece": "e2-m256-decode",
+    "work_dir": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/e2-m256-decode/work",
+    "plan": "specs/jais3-moe-w8a16-v032-v2/pieces_single_rows_rerun.json"
+   },
+   "row": {
+    "provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-moe-m256.json"
+   },
+   "run_result": {
+    "dir": "/data/erland/results/geak-agent/jais3-moe-v032-01.round-check-final",
+    "note": "the run's whole result (whole MoE layer) was 1.094x, below the 1.1x rule; this one table entry passed alone on its row"
+   },
+   "notes": "the reference solution is one table entry of this run's result (the 256 decode entry); the v2 GEAK run later started from this run's result",
+   "prompt_vs_task": "different problem",
+   "hardware": {}
+  },
+  {
+   "record_id": "2026-10-27-geak-jais3-moe-v032-01-m1024",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-moe-v032-01",
+   "task_dir": "/data/erland/results/phibench-rows/tasks/lh/mi210-jais3-moe-m1024",
+   "task": {
+    "origin": "Erland/phibench-mi210-rows 323e515"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "evidence": {
+    "kind": "piece",
+    "scores": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/scores.json",
+    "piece": "e1-m1024-tiles",
+    "work_dir": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/e1-m1024-tiles/work",
+    "plan": "specs/jais3-moe-w8a16-v032-v2/pieces_single_rows_rerun.json"
+   },
+   "row": {
+    "provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-moe-m1024.json"
+   },
+   "run_result": {
+    "dir": "/data/erland/results/geak-agent/jais3-moe-v032-01.round-check-final",
+    "note": "the run's whole result (whole MoE layer) was 1.094x, below the 1.1x rule; this one table entry passed alone on its row"
+   },
+   "notes": "the reference solution is one table entry of this run's result (the 1024 tile entry); this row is marked too easy (a no-insight search found it)",
+   "prompt_vs_task": "different problem",
+   "hardware": {}
+  },
+  {
+   "record_id": "2026-10-27-geak-jais3-mova-v032-01",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-mova-v032-01",
+   "task": {
+    "id": "geak:jais3-mova-gemm-v032",
+    "bench": "lh",
+    "kind": "performance",
+    "origin": "GEAK task, no Phi-Bench row"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "anchor": {
+    "ref_speedup": null,
+    "note": "a GEAK run is labeled by the Round check, not by an anchor"
+   },
+   "evidence": {
+    "kind": "round_check",
+    "dir": "/data/erland/results/geak-agent/jais3-mova-v032-01.round-check-final"
+   },
+   "prompt_vs_task": "same problem, other prompt",
+   "hardware": {
+    "scored_on": {
+     "device": "AMD Instinct MI210",
+     "count": 1
     }
-  ]
+   }
+  },
+  {
+   "record_id": "2026-10-29-geak-jais3-mova-v2-v032-01",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-mova-v2-v032-01",
+   "task": {
+    "id": "geak:jais3-mova-gemm-v032-v2",
+    "bench": "lh",
+    "kind": "performance",
+    "origin": "GEAK task, no Phi-Bench row"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "anchor": {
+    "ref_speedup": null,
+    "note": "a GEAK run is labeled by the Round check, not by an anchor"
+   },
+   "evidence": {
+    "kind": "round_check",
+    "dir": "/data/erland/results/geak-agent/jais3-mova-v2-v032-01.round-check-current"
+   },
+   "prompt_vs_task": "same problem, other prompt",
+   "hardware": {
+    "scored_on": {
+     "device": "AMD Instinct MI210",
+     "count": 1
+    }
+   }
+  },
+  {
+   "record_id": "2026-10-27-geak-jais3-attn-v032-01",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-attn-v032-01",
+   "task": {
+    "id": "geak:jais3-attention-decode-v032",
+    "bench": "lh",
+    "kind": "performance",
+    "origin": "GEAK task, no Phi-Bench row"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "anchor": {
+    "ref_speedup": null,
+    "note": "a GEAK run is labeled by the Round check, not by an anchor"
+   },
+   "evidence": {
+    "kind": "round_check",
+    "dir": "/data/erland/results/geak-agent/jais3-attn-v032-01.round-check"
+   },
+   "prompt_vs_task": "same problem, other prompt",
+   "hardware": {
+    "scored_on": {
+     "device": "AMD Instinct MI210",
+     "count": 1
+    }
+   }
+  },
+  {
+   "record_id": "2026-10-29-geak-jais3-attn-v032-02",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-attn-v032-02",
+   "task": {
+    "id": "geak:jais3-attention-decode-v032",
+    "bench": "lh",
+    "kind": "performance",
+    "origin": "GEAK task, no Phi-Bench row"
+   },
+   "agent": {
+    "harness": "geak"
+   },
+   "model": {
+    "name": "claude-opus-5-5"
+   },
+   "anchor": {
+    "ref_speedup": null,
+    "note": "a GEAK run is labeled by the Round check, not by an anchor"
+   },
+   "evidence": {
+    "kind": "round_check",
+    "dir": "/data/erland/results/geak-agent/jais3-attn-v032-02.round-check-final"
+   },
+   "notes": "GEAK ran fully but committed nothing (empty final patch): unsuccessful, not invalid (user, 2026-11-26) Scored on: nothing was measured, because there was no candidate.",
+   "prompt_vs_task": "same problem, other prompt",
+   "hardware": {
+    "scored_on": {
+     "device": "AMD Instinct MI210",
+     "count": 1
+    }
+   }
+  }
+ ]
 }

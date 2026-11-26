@@ -107,11 +107,11 @@ Every run on the task becomes one record, starting with your own session and inc
 | `record_id` | the record's name, usually the run folder's name | the run folder |
 | `source` | `claude_code_session`, `codex_session`, `geak_run` or `open_model_run` | how the run was made |
 | `run_dir` | the full path of the run folder | the run folder |
-| `task` | the task's `id`, `bench`, `kind` (`performance` or `implementation`) and `origin`, the dataset and its revision | the task's `task.toml` and its dataset |
+| `task_dir` | the full path of the Φ-Bench task package the run was on; the converter reads the task's id, size, kind, anchor and scoring hardware from its `task.toml` and `tests/ref_speedup.txt`, so the sheet does not repeat them | the task package |
+| `task` | only `origin`, the dataset and its revision | the task's dataset |
 | `agent` | the `harness` and its `version` | the harness's own log |
-| `model` | the model's `name`, its `precision`, and `served_by` (server version, GPUs, context length) | the model server's log |
-| `hardware` | where the model ran and where the run was scored | the run's job log |
-| `anchor` | the `ref_speedup` that the score used, and the path of its evidence | the task's calibration |
+| `model` | `name`, one of `Qwen3.8-27B` or `claude-opus-5-5`; for a model we served, also `precision` and `served_by` with `server` (`vLLM`), `version` and `settings` | the model server's log |
+| `hardware` | for a model we served, `served_on`: `{"device": "AMD Instinct MI210", "count": 4}`; a device is one of `AMD Instinct MI210` or `AMD EPYC 9334`; leave it empty for a Claude or Codex session | the run's job log |
 | `serving_log`, `job_log` | the model server's log and the run's job log, for an open-model run | the run's machine |
 | `prompt_vs_task` | `instruction` when the agent was given the task's `instruction.md`, otherwise `same problem, other prompt` or `different problem` | how the run was started |
 | `invalid_reason` | why the run was not a fair attempt; leave it out for a fair one | the run's logs |
@@ -119,9 +119,8 @@ Every run on the task becomes one record, starting with your own session and inc
 | `submission_timing`, `unclean_submissions` | `checked` once someone has checked every in-session timing for another job on the same machine, and the submissions that shared it | the machine's job logs |
 | `notes` | anything a reader of the record must know | |
 | `session`, `slice` | for your own Claude Code session, the session file and the uuids where the work starts (`from_uuid`) and ends (`to_uuid`) | `session-requests` |
-| `reference` | for your own session, the task package (`task_dir`) whose `oracle.patch` is the session's result | the task package |
 
-`specs/examples/run-sheet-example.json` has one filled entry for each kind of run: your own Claude Code session, an open model's run and a GEAK run. Copy the entry that matches your run and change every value. A GEAK run also names the measurement that sets its label and, when it is successful, its row (`docs/trace-records.md`). The converter refuses a run, and writes nothing for it, when a field is missing, a named file does not exist, the anchor differs from the one the final score used, the harness version differs from the one in the run's log, an open-model run claims another prompt than the task's instruction, or a file holds a secret. It tries every run in the sheet, lists each refusal with its reason, and never overwrites a record that is already stored.
+`specs/examples/run-sheet-example.json` has one filled entry for each kind of run: your own Claude Code session, an open model's run and a GEAK run. Copy the entry that matches your run and change every value. For your own session, the task package's `oracle.patch` must be the session's result. A GEAK run also names the measurement that sets its label and, when it is successful, its row (`docs/trace-records.md`); a GEAK run that has no Φ-Bench task gives `task` (`id`, `bench`, `kind`, `origin`), `anchor` and `hardware.scored_on` itself instead of `task_dir`. A device, model or server that is not in the lists is refused; add it to the converter on purpose. The converter refuses a run, and writes nothing for it, when a field is missing, a field repeats what the task package says, a named file does not exist, the anchor differs from the one the final score used, the harness version differs from the one in the run's log, an open-model run claims another prompt than the task's instruction, or a file holds a secret. It tries every run in the sheet, lists each refusal with its reason, and never overwrites a record that is already stored.
 
 **Example.** The source run of this task is the first GEAK MoE run, stored as one successful record with its 30 agent conversations. It is marked as having worked on a larger problem, the whole layer, because this task is one table entry of its result. Two runs of Qwen3.8-27B reached 1.143× and 1.137× against the anchor of 1.201437, so both are unsuccessful, and a third had a setup error and is invalid. The Qwen runs are described in the run sheet `specs/traces-qwen-runs-2026-11.json` and the GEAK runs in `specs/traces-geak-runs-2026-11.json`.
 

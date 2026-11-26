@@ -1,19 +1,62 @@
 import json
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from phibench_mi210 import traces
+from task_package import make_task
+
+TASK_DIR = make_task(Path(tempfile.mkdtemp()), 'x', 2.0, 'AMD EPYC 9334')
+SERVED = {'device': 'AMD Instinct MI210', 'count': 4}
+QWEN = {'name': 'Qwen3.8-27B', 'precision': 'bf16',
+        'served_by': {'server': 'vLLM', 'version': '0.32.0', 'settings': 'tensor parallel 4'}}
 
 
 def entry(record_id='run-1', **over):
     e = {
-        'record_id': record_id, 'source': 'open_model_run', 'run_dir': 'RUN',
-        'task': {'id': 'lh/x', 'bench': 'lh', 'kind': 'performance', 'origin': 'upstream 3bcefac'},
-        'agent': {'harness': 'fake', 'version': '0'}, 'model': {'name': 'm'}, 'hardware': {'scored_on': 'cpu'},
-        'anchor': {'ref_speedup': 2.0},
+        'record_id': record_id, 'source': 'open_model_run', 'run_dir': 'RUN', 'task_dir': str(TASK_DIR),
+        'task': {'origin': 'upstream 3bcefac'},
+        'agent': {'harness': 'fake', 'version': '0'}, 'model': QWEN, 'hardware': {'served_on': SERVED},
     }
     e.update(over)
     return e
+
+
+def test_task_facts_come_from_the_task_package():
+    e = traces.check_sheet_entry(entry())
+    assert e['task'] == {'id': 'x', 'bench': 'lh', 'kind': 'performance', 'origin': 'upstream 3bcefac',
+                         'task_dir': str(TASK_DIR)}
+    assert e['anchor']['ref_speedup'] == 2.0 and e['anchor']['evidence'].endswith('tests/ref_speedup.txt')
+    assert e['hardware'] == {'served_on': SERVED, 'scored_on': {'device': 'AMD EPYC 9334', 'count': 1}}
+
+
+@pytest.mark.parametrize('over,match', [
+    ({'anchor': {'ref_speedup': 2.0}}, 'come from the task package'),
+    ({'task': {'id': 'x', 'origin': 'o'}}, 'come from the task package'),
+    ({'hardware': {'served_on': SERVED, 'scored_on': {'device': 'AMD EPYC 9334', 'count': 1}}},
+     'come from the task package'),
+    ({'task': {}}, 'task.origin'),
+    ({'task_dir': None}, 'task_dir'),
+    ({'hardware': {'served_on': {'device': 'MI210', 'count': 4}}}, 'is not one of'),
+    ({'hardware': {'served_on': {'device': 'AMD Instinct MI210', 'count': '4'}}}, 'whole number'),
+    ({'hardware': {'served_on': SERVED, 'gpus': '4-7'}}, 'put details in notes'),
+    ({'hardware': {}}, 'served_on'),
+    ({'model': {**QWEN, 'name': 'qwen'}}, 'is not one of'),
+    ({'model': {**QWEN, 'served_by': 'vLLM 0.32.0'}}, 'served_by'),
+    ({'model': {**QWEN, 'served_by': {**QWEN['served_by'], 'server': 'sglang'}}}, 'is not one of'),
+])
+def test_sheet_entry_takes_only_fixed_choices(over, match):
+    with pytest.raises(traces.RecordError, match=match):
+        traces.check_sheet_entry(entry(**over))
+
+
+def test_a_session_has_no_served_on_or_served_by():
+    e = entry(source='claude_code_session', model={'name': 'claude-opus-5-5'}, hardware={})
+    checked = traces.check_sheet_entry(e)
+    assert checked['hardware']['served_on'] is None and checked['model']['served_by'] is None
+    with pytest.raises(traces.RecordError, match='only for a model we served'):
+        traces.check_sheet_entry({**e, 'hardware': {'served_on': SERVED}})
 
 
 @pytest.mark.parametrize('reward,invalid,expected', [
@@ -50,11 +93,9 @@ def test_paths_and_local_key_are_not_secrets(tmp_path):
 
 def test_sheet_entry_must_be_complete():
     e = entry()
-    del e['anchor']
-    with pytest.raises(traces.RecordError, match='anchor'):
+    del e['model']
+    with pytest.raises(traces.RecordError, match='model'):
         traces.check_sheet_entry(e)
-    with pytest.raises(traces.RecordError, match='kind'):
-        traces.check_sheet_entry(entry(task={'id': 'x', 'bench': 'lh', 'kind': 'speed', 'origin': 'o'}))
     with pytest.raises(traces.RecordError, match='record_id'):
         traces.check_sheet_entry(entry(record_id='a/b'))
 
@@ -96,7 +137,7 @@ def test_convert_writes_record_and_index(tmp_path, fake_adapter):
     assert all(len(f['sha256']) == 64 for f in rec['provenance']['files'])
     assert (out / 'records/run-1/prompt.txt').read_text() == 'do it'
     index = [json.loads(l) for l in (out / 'index.jsonl').read_text().splitlines()]
-    assert index == [{'record_id': 'run-1', 'task': 'lh/x', 'source': 'open_model_run', 'model': 'm',
+    assert index == [{'record_id': 'run-1', 'task': 'x', 'source': 'open_model_run', 'model': 'Qwen3.8-27B',
                       'label': 'successful', 'reward': 0.25, 'speedup': 3.0, 'prompt_vs_task': 'instruction', 'chats': 1}]
 
 
