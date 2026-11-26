@@ -279,7 +279,7 @@ in the entries are `deploy_bbq` commits. Add new entries at the end.
   - **Session (15:37-16:47 UTC, 70 of 90 min):** the solver stopped by itself after 3 of 16 submissions and
     finalized on submission 2. In-session speedups: 114.12 (heap with an eager removal map), 327.17 (heap with lazy
     removal), 325.99 (submission 2 plus `__slots__`). It tested further ideas locally (sorting the tail on drain,
-    lazy heapify) and found them flat or slower. 66 turns, largest prompt 98.7k tokens, no compaction.
+    lazy heapify) and found them flat or slower. 66 turns, largest prompt 98.7k tokens, no compaction [wrong: 1 compaction, see the correction of 2026-11-26].
   - **Final score (16:49-16:50 UTC, server stopped, node quiet 3 checks before and after):** speedup 317.51 against
     the anchor 322.07 (vs_oracle 0.986), every gate passed, **reward 0**. The finalized code matches the reference
     (a heapq heap); 317.51 and the in-session 327.17 both sit inside the oracle's own range (316.27-328.05), so the
@@ -318,7 +318,7 @@ in the entries are `deploy_bbq` commits. Add new entries at the end.
     ggml headers, wrote its own scratch harness in `/tmp` (link stubs for `ggml_cpu_init`, its own compile line) and spent
     the session on compile errors in that harness and in its AVX2 code; at the end it was still fixing a wrong
     intrinsic name (`_mm256_extracti128_si128` for `_mm256_extracti128_si256`). 95 model calls, 107 tool calls, largest
-    prompt 98.8k tokens, no compaction; five single calls of 5-10 min each (long thinking at about 90k context).
+    prompt 98.8k tokens, no compaction [wrong: 2 compactions, see the correction of 2026-11-26]; five single calls of 5-10 min each (long thinking at about 90k context).
   - **Final score (20:49-20:52 UTC, the working tree as left, no finalize since nothing was submitted):** correct,
     speedup 1.3808 against the anchor 2.6002, **reward 0**.
   - **Audit:** no read of `/opt/loop` (not even `submit.sh`), `/tests` or the patches; no network command.
@@ -354,7 +354,7 @@ in the entries are `deploy_bbq` commits. Add new entries at the end.
 - **Row 2 solver (`runs/2026-11-25-qwen-code-causal-delivery-vclock-1/`, 21:29-22:59 UTC, the full 90 min, stopped by the
   time limit, 5 of 16 submissions, auto-finalized on submission 4):** in-session speedups 376.27 (fails the in-session
   `implausible_vs_oracle` gate), 331.55, 327.73, 347.70, 430.74 (`implausible_vs_oracle` again). 77 model calls, 82 tool
-  calls, largest prompt 98.4k tokens, no compaction.
+  calls, largest prompt 98.4k tokens, no compaction [wrong: 2 compactions, see the correction of 2026-11-26].
   - **Final score (22:59-23:02 UTC):** correct, every gate passed, speedup **360.87** against the anchor 175.96
     (vs_oracle 2.05), **reward 0.139**: the first positive reward of these runs. The change: a heap of ready messages
     per sender with an exact slow path for messages outside the fast case (`causal/buffer.py` +282 lines,
@@ -382,7 +382,7 @@ in the entries are `deploy_bbq` commits. Add new entries at the end.
   20% higher). Solver `runs/2026-11-25-qwen-code-memory-accounting-sim-1/`.
 - **Row 3 solver (23:26-00:56 UTC, the full 90 min, stopped by the time limit, 2 of 16 submissions,
   auto-finalized on submission 2):** in-session 41.77 and 42.34, both correct. 52 model calls, 53 tool calls,
-  largest prompt 97.8k tokens, no compaction. Change: `memsim/accountant.py` +199 lines, `memsim/scheduler.py` +17 lines changed.
+  largest prompt 97.8k tokens, no compaction [wrong: 2 compactions, see the correction of 2026-11-26]. Change: `memsim/accountant.py` +199 lines, `memsim/scheduler.py` +17 lines changed.
   - **Final score (00:56-00:59 UTC):** correct, speedup **40.62** against the anchor 1122.23 (vs_oracle 0.036),
     **reward 0**.
   - **Audit:** no grader, `/tests`, patch or `/logs` reads; no network command.
@@ -398,7 +398,7 @@ in the entries are `deploy_bbq` commits. Add new entries at the end.
   correctness gate (`submissions/{1,2}/verifier_state.json`: scope, import origin, correctness, benchmark all true) and
   both were rejected only by the in-session `implausible_vs_oracle` gate (above 2x the reference), which the solver is
   told is a crash. It spent the rest of the session making its code robust against a crash that did not exist. 49
-  model calls, 51 tool calls, largest prompt 92.5k tokens, no compaction.
+  model calls, 51 tool calls, largest prompt 92.5k tokens, no compaction [wrong: 1 compaction, see the correction of 2026-11-26].
   - **Final score (02:52-02:55 UTC):** the auto-finalize found no accepted submission; `submit.sh --finalize` resets
     the tree to the baseline and plants only an accepted winner, so it planted nothing and the final score measured
     the unchanged baseline: speedup 1.0105, **reward 0**. The solver's code is kept only in
@@ -408,3 +408,24 @@ in the entries are `deploy_bbq` commits. Add new entries at the end.
   reference in-session), but the upstream harness threw the result away: the 2x gate (found in row 2) here rejected
   every submission, and finalize then restored the baseline. Times: download 15 s, image 25 s, calibration 20 min,
   server 2 min, solver 90 min, final score 3 min: 1 h 56 min of row time (00:59-02:55).
+
+### 2026-11-26: Correction, the five CPU-task sessions did compact
+
+- **What was wrong:** the entries above for wro-pq, q5k, causal-delivery, memory-accounting and secure-agg said
+  "no compaction". I had checked the largest prompt (below the expected trigger of about 98k) and searched the stream
+  for "compress"; neither finds a compaction. The trace converter (`src/phibench_mi210/traces.py`, which detects the
+  summarizer call by its instruction) counted compactions in every run, and the raw model calls confirm it.
+- **Measured** (`logs/agent/openai/`: the summarizer call's prompt tokens, then the next agent call's):
+  - wro-pq: 1, 98,684 → 22,905 (call 36)
+  - q5k: 2, 98,830 → 17,263 and 96,891 → 32,193
+  - causal-delivery: 2, 85,314 → 38,318 and 98,383 → 27,786
+  - memory-accounting: 2, 97,776 → 30,525 and 95,880 → 23,754
+  - secure-agg: 1 compaction made of 2 summarizer calls (02:14 and 02:18 UTC): the first, in the usual form, left
+    81,219 tokens; Qwen Code then called the summarizer again with the instruction as the system message and no
+    tools; the next agent call had 28,769 tokens.
+  - m256 (Qwen Code): 6, as recorded.
+  So the "largest prompt" figures above are the prompts at which compaction started.
+- **Also seen:** wro-pq's last call (16:47 UTC) and the 65k compaction test's last call are a "managed memory extraction
+  subagent" side call of Qwen Code, with its own system prompt; it is not part of the solver's conversation.
+- **Fixed:** the two slides of the 26 November deck that repeated the claim. The scores and labels are unchanged.
+
