@@ -214,7 +214,7 @@ def test_viewer_rows_have_one_shape(tmp_path, qwen_run):
     runs = [json.loads(l) for l in (out / 'viewer/runs.jsonl').read_text().splitlines()]
     assert len(runs) == 1 and runs[0]['label'] == 'successful' and runs[0]['submissions'] == 2
     msgs = runs[0]['messages']
-    assert {tuple(sorted(m)) for m in msgs} == {('content', 'event', 'reasoning', 'role', 'tool_call_id', 'tool_calls')}
+    assert {tuple(m) for m in msgs} == {tuple(k for k in traces.MESSAGE_FIELDS if k != 'extra')}
     assert all(m['content'] is None or isinstance(m['content'], str) for m in msgs)
     assert isinstance(msgs[2]['tool_calls'], str)
     assert (out / 'README.md').read_text().startswith('---\nconfigs:')
@@ -343,5 +343,6 @@ def test_mini_swe_agent_run_becomes_a_record(tmp_path, qwen_run):
     assert rec['prompt_source'] == 'generated from trajectory.json messages[1]'
     assert rec['model']['served_name'] == 'hosted_vllm/qwen3.8-27b'
     rows = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
-    assert rows[2]['reasoning'] == 'r' and rows[2]['actions'] == [{'command': 'ls'}]
-    assert rows[-1] == {'role': 'event', 'event': 'exit', 'status': 'RepeatedFormatError', 'step': 4}
+    assert rows[2]['reasoning'] == 'r' and rows[2]['extra']['actions'] == [{'command': 'ls'}]
+    assert rows[-1]['role'] == 'event' and rows[-1]['event'] == 'exit'
+    assert rows[-1]['content'] == 'RepeatedFormatError' and rows[-1]['source_index'] == 4

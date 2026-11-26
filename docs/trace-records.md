@@ -13,7 +13,8 @@ task, from its prompt to its end. The decisions behind it are ADR 0002 (private,
 | Source (`source`) | What one run is | Main conversation file |
 |---|---|---|
 | `claude_code_session` | the slice of a person's Claude Code session that did the work (SOP step 6) | the session JSONL slice, thinking blocks removed |
-| `geak_attempt` | one GEAK engineer attempt (for example round 1, engineer 0) | that engineer's subagent JSONL |
+| `geak_run` | one whole GEAK run, all its agents (ADR 0010) | every agent's Claude Code JSONL, thinking blocks removed |
+| `codex_session` | the slice of a person's Codex session (not read yet) | the session JSONL slice, reasoning removed |
 | `open_model_run` | one run of an open model through a harness (Qwen Code, mini-swe-agent) | the raw model calls (`logs/agent/openai/*.json`) |
 
 Not runs, and not stored: harness tests on dummy prompts, verifier calibration runs, collided runs. A run that was
@@ -47,8 +48,24 @@ The converter checks the sheet against the run: the harness version and the anch
 what the sheet says, or it refuses. `submission_timing: "checked"` means someone checked each in-session timing for a
 shared machine; the ones that were shared go in `unclean_submissions` (`{"<n>": "<reason>"}`). Without it, every
 submission's `timing_clean` is unknown (`null`). A thrown-away final score goes in `invalid_scores`
-(`[{"dir": "final-busy", "reason": "..."}]`). Readers exist for `open_model_run` with Qwen Code and mini-swe-agent;
-others are refused by name until they are written.
+(`[{"dir": "final-busy", "reason": "..."}]`). Readers exist for `open_model_run` with Qwen Code and mini-swe-agent, and for `geak_run`;
+others (a person's Claude Code or Codex session) are refused by name until they are written.
+
+A GEAK run's sheet entry has `"agent": {"harness": "geak"}` and names its evidence and, for a successful run, its
+row (ADR 0010):
+
+```json
+{"source": "geak_run", "run_dir": ".../geak-agent/jais3-moe-v2-v032-01",
+ "evidence": {"kind": "round_check", "dir": ".../geak-agent/jais3-moe-v2-v032-01.round-check-current"},
+ "row": {"provenance": ".../phibench-rows/provenance/mi210-jais3-routed-moe-w8a16.json"}}
+```
+
+For a row made from one piece of a result, the evidence is the piece:
+`{"kind": "piece", "scores": ".../scores.json", "piece": "e2-m256-decode", "work_dir": ".../e2-m256-decode/work",
+"plan": "specs/..."}`. The converter labels the run successful only when the evidence passed (the Round check: pass,
+correctness PASS, control identical, score at least 1.1; a piece: its `qualifies` flag) and the row's provenance
+names this run, this evidence and this task; it refuses a passed run without its row. A run that did not pass is
+unsuccessful, with no row.
 
 ## Layout
 
@@ -77,6 +94,27 @@ records/<record_id>/
 For an open-model run, `conversation/raw/` holds the raw model calls (`logs/agent/openai/*.json`), the harness
 stream (`stream.jsonl`), the harness's own chat recording and its home folder files (settings, usage record), or
 `trajectory.json` for mini-swe-agent.
+
+For a GEAK run the record holds, in place of the open-model files:
+
+```
+  conversation/raw/claude/...        every agent's Claude Code JSONL, thinking blocks removed, all else as recorded
+  conversation/readable/             GEAK's readable copy of each agent's chat (chat/*.md and its index)
+  conversation/agents/<nn>-<role>.jsonl   each agent's messages, in the order the run started them
+  conversation/messages.jsonl        all agents' messages, each line naming its agent
+  harness/                           outcome.json, receipt.json, the driver's spec and result, transcript.jsonl
+  harness/geak/                      GEAK's own working files: plan, roadmap, insight log, metrics, each engineer's
+                                     report, self-reported result and patch, the integration patches and logs
+  code/final.patch                   GEAK's final patch, when it wrote one
+  code/final/                        the candidate files the Round check measured
+  code/reference.patch               for a row made from one piece of the result: that piece
+  verifier/round-check/              the independent measurement that sets the label (prepare.json, verdict.json)
+  verifier/piece-scores.json         for a piece: the scores the row was accepted on
+```
+
+Workspaces, baselines and profiler output stay in the run folder, which `provenance.run_dir` names. Each engineer
+attempt is listed under `submissions` with GEAK's own reported speedup, marked as self-reported; it never sets the
+label.
 
 `finalize_apply.log` matters for reading the outcome: it says whether the loop planted the winning submission into
 the tree before the final score, or left the starting code (as when every submission was rejected), so it decides
@@ -108,12 +146,34 @@ never sets it.
 
 ## `messages.jsonl`
 
-One line per message, in the OpenAI chat shape so that every source looks the same:
-`{"role": "system" | "user" | "assistant" | "tool", "content": ..., "reasoning": ..., "tool_calls": [...],
-"tool_call_id": ..., "call": <index of the model call that produced or first sent it>}`.
-Where the harness compacted its history, a line `{"role": "event", "event": "compaction", "summary": ...}` marks
-the point, and the raw calls in `raw/` show exactly what the model saw after it. `reasoning` is filled for open
-models and left out for Claude.
+Every record has the conversation in one shape (`messages-v1`), whatever the source: a person's Claude Code or
+Codex session, a GEAK run, or an open model's run. The raw files next to it stay in each tool's own format. Each line
+is one message with exactly these fields, in this order:
+
+| Field | Holds |
+|---|---|
+| `turn` | its position in the file, from 0 |
+| `role` | `system`, `user`, `assistant`, `tool`, or `event` for something the harness did (see below) |
+| `content` | plain text (a message sent as several text parts is joined with newlines; `extra.content_parts` says how many) |
+| `reasoning` | the model's own reasoning, for open models; `null` for Claude and Codex, whose thinking is dropped |
+| `tool_calls` | for an assistant message, the tools it called: `[{"id", "type": "function", "function": {"name", "arguments": <JSON text>}}]` |
+| `tool_call_id` | for a tool message, which call it answers |
+| `agent` | in a GEAK run, the agent it belongs to (for example `eng r1_d0:compute`); `null` otherwise |
+| `source_index` | where it is in the raw files: the model call for Qwen Code, the step for mini-swe-agent; `null` for Claude Code |
+| `event` | for `role: event`, what happened |
+| `extra` | anything only one source has: mini-swe-agent's parsed `actions` and `format_error`, a tool message's `is_error`, Claude Code's `timestamp` and `model`, a compaction's `part`, a side call's `system` |
+
+Events: `compaction` (the harness summarized the history; `content` is the summary, `reasoning` the model's
+reasoning; consecutive summarizer calls are parts of one compaction), `message_updated` (the harness added text parts
+in front of an earlier message; `content` is what it added), `side_call` (a harness call that is not the solver, such
+as Qwen Code's memory extraction; it does not enter the conversation), `failed_call` (`content` is the error),
+`history_rewritten` (the next request did not continue the previous one in any known way), and `exit`
+(mini-swe-agent's end; `content` is the exit status). Where the harness compacted its history, the raw calls in
+`raw/` show exactly what the model saw after it.
+
+`python -m phibench_mi210.traces remessage --out DATASET` rebuilds every stored record's messages from the raw files
+inside it in the current shape, for example after the shape changes; it never touches a raw file, and `record.json`
+notes the format and when the messages were rebuilt.
 
 How a compaction looks in Qwen Code's raw calls (Qwen Code 0.28.4): the request's last message is a user message
 that starts "You are the component that summarizes a conversation when its context window is about to overflow",
@@ -133,5 +193,4 @@ out, and `record.json` `scrub` lists the file and the change. Making traces publ
 - Size: each raw call repeats the conversation so far. The six Qwen Code runs of 2026-11-24 to 25 hold 19 to 53 MB
   of raw calls each (49 to 190 files, the largest 660 KB), about 167 MB in all, which compresses well. Where the
   dataset is stored is still to be decided.
-- GEAK attempts are `unscored` until each attempt's patch is run through the verifier of the task built from that
-  GEAK run.
+- Readers for a person's own Claude Code or Codex session, with the slice cutter, are not written yet.

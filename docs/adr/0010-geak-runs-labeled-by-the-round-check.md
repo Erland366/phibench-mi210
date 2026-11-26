@@ -12,13 +12,17 @@ or not correct. GEAK's own reported speedups never set the label. Each record sa
 never mixed up.
 
 The row-first rule of ADR 0008 applies to successful records: a GEAK run's successful record is stored once its row
-exists. Unsuccessful GEAK runs (for example MoE round 2 at 1.094x, MoVA v1 and v2, attention round 2) are stored
-now, tied to the GEAK task they worked on and marked as having no Φ-Bench row.
+exists. Unsuccessful GEAK runs (MoVA v1 and v2, both attention runs; the second attention run committed nothing,
+which counts as unsuccessful, not invalid) are stored now, tied to the GEAK task they worked on and marked as having
+no Φ-Bench row. Pilot, probe and smoke runs tested the setup and are not stored.
 
 When one GEAK run is the source of several rows (the first MoE run gave both `mi210-jais3-moe-m256` and
 `mi210-jais3-moe-m1024`), each row gets its own record holding the same run, with the task defined as that row and a
-note that its reference solution is one piece of the run's result. Claude's thinking blocks are dropped, as for
-every Claude trace.
+note that its reference solution is one piece of the run's result. Such a run gets no record of its own for the task
+it was given, even when its whole result failed it (the first MoE run's whole result was 1.094x): the same
+conversation would otherwise be both a successful and an unsuccessful example. The whole result is kept in each
+record as context (`outcome.run_result`), never as the label. Claude's thinking blocks are dropped, as for every
+Claude trace.
 
 ## Considered options
 
