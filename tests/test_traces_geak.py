@@ -179,9 +179,14 @@ def test_piece_evidence_labels_by_its_qualifies_flag(tmp_path, geak):
     e = geak_entry(run, rc, prov, task={'id': 'mi210-jais3-moe-m256', 'bench': 'lh', 'kind': 'performance',
                                         'origin': 'Erland/phibench-mi210-rows 323e515'},
                    evidence={'kind': 'piece', 'scores': str(scores), 'piece': 'e2-m256-decode', 'work_dir': str(work)})
+    whole = tmp_path / 'geak-agent/jais3-moe-v032-01.round-check-final'
+    write(whole / 'verdict.json', {'summary': {'verdict': 'pass', 'correctness': 'PASS', 'score_speedup': 1.0938}})
+    e['run_result'] = {'dir': str(whole), 'note': 'whole result not fast enough; this entry alone was'}
     traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
     rec = load(tmp_path / 'ds')
     assert rec['outcome']['label'] == 'successful' and rec['outcome']['speedup'] == 1.2157
+    assert rec['outcome']['run_result']['speedup'] == 1.0938
+    assert (tmp_path / 'ds/records/geak-moe-v2/verifier/run-round-check/verdict.json').is_file()
     assert (tmp_path / 'ds/records/geak-moe-v2/code/reference.patch').read_text() == '+ 256 entry\n'
 
 

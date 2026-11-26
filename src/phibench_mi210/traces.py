@@ -814,6 +814,15 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
         cand = (json.loads(prep.read_text()).get('source') or {}).get('candidate_dir')
         if cand and Path(cand).is_dir():
             _copy_matching(builder, Path(cand), ('*.py', '*.json'), 'code/final')
+    # Context only, never the label: the whole run's own result when the row was made from one piece of it (the
+    # first MoE run: its whole result was 1.094x, two of its table entries each passed alone).
+    if entry.get('run_result'):
+        rr_dir = Path(entry['run_result']['dir'])
+        _copy_matching(builder, rr_dir, ('prepare.json', 'verdict.json'), 'verifier/run-round-check')
+        s = _read_json(rr_dir / 'verdict.json').get('summary') or {}
+        record['outcome']['run_result'] = {
+            'verdict': s.get('verdict'), 'correctness': s.get('correctness'), 'speedup': s.get('score_speedup'),
+            'dir': str(rr_dir), 'note': entry['run_result'].get('note', 'the whole run\'s result; not the label')}
     if result['passed']:
         _check_row(entry, str(ev_dir))
         lab = 'successful'
