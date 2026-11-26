@@ -7,13 +7,13 @@
       "source": "open_model_run",
       "run_dir": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-23-qwen-m256-1",
       "task": {"id": "mi210-jais3-moe-m256", "bench": "lh", "kind": "performance", "origin": "Erland/phibench-mi210-rows 323e515"},
-      "agent": {"harness": "mini-swe-agent"},
+      "agent": {"harness": "mini-swe-agent", "version": "2.4.6"},
       "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, default attention backend"},
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "1 x AMD Instinct MI210"},
       "anchor": {"ref_speedup": 1.201437, "evidence": "this repository's calibration of 2026-11-08 (median of 5 reference runs on MI210), /data/erland/results/phibench-calibration/mi210-jais3-moe-m256/oracle.json on node 303"},
       "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-smoke-20261123T1741.log",
       "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-23-qwen-m256-1.job.log",
-      "invalid_reason": "setup error: the solver never edited the code and the run was not scored",
+      "invalid_reason": "setup error: one model reply ran past litellm's default 600 s client timeout, which ended the session after 2 h 33 min with no edit and no submission; the final score did not run (the sandbox had no /tests mount point)",
       "notes": "pilot run with mini-swe-agent"
     },
     {
@@ -26,7 +26,10 @@
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "1 x AMD Instinct MI210, node idle, server stopped"},
       "anchor": {"ref_speedup": 1.201437, "evidence": "this repository's calibration of 2026-11-08 (median of 5 reference runs on MI210), /data/erland/results/phibench-calibration/mi210-jais3-moe-m256/oracle.json on node 303"},
       "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-run2-20261124T0813.log",
-      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-24-qwen-m256-2.job.log"
+      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-24-qwen-m256-2.job.log",
+      "submission_timing": "checked",
+      "unclean_submissions": {},
+      "notes": "submission 1 was timed in session at 2026-11-24 09:11 UTC on GPU 0 while the model server held GPUs 4-7; the other project's queue on GPUs 0-3 started at 13:04 UTC"
     },
     {
       "record_id": "2026-11-24-qwen-code-m256-3",
@@ -40,9 +43,9 @@
       "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-tools-20261124T0921.log",
       "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-24-qwen-code-m256-3.job.log",
       "invalid_scores": [{"dir": "final-busy", "reason": "first final score on GPU 0 overlapped another project's jobs on the same GPU"}],
-      "submission_timing": null,
-      "unclean_submissions": {},
-      "notes": "in-session timings ran on GPU 0 while the server held GPUs 4-7; from 13:11 UTC GPU 0 was shared with another project's queue. Fill submission_timing with \"checked\" and list the shared submissions in unclean_submissions, or leave null (timing unknown)."
+      "submission_timing": "checked",
+      "unclean_submissions": {"1": "timed in session at 2026-11-24 14:04 UTC on GPU 0, which another project's Wan2.2 queue shared from 13:11 UTC; in-session speedup 1.4382 against the clean final 1.1374"},
+      "notes": "in-session timings ran on GPU 0 while the server held GPUs 4-7; from 13:11 UTC GPU 0 was shared with another project's queue"
     },
     {
       "record_id": "2026-11-25-qwen-code-wro-pq-1",
@@ -52,7 +55,7 @@
       "agent": {"harness": "qwen-code", "version": "0.28.4"},
       "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, TRITON_ATTN"},
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "AMD EPYC 9334"},
-      "anchor": {"ref_speedup": null, "upstream_ref_speedup": 312.0, "evidence": "local recalibration on the EPYC 9334: local/wro-vllm-v1-priority-request-queue-epyc9334/tests/verifier-correctness-manifest.json and runs/2026-11-25-*-calibration/ (fill ref_speedup from the manifest)"},
+      "anchor": {"ref_speedup": 322.071786, "upstream_ref_speedup": 312.0, "evidence": "local recalibration on the EPYC 9334: local/wro-vllm-v1-priority-request-queue-epyc9334/tests/verifier-correctness-manifest.json and runs/2026-11-25-*-calibration/ (fill ref_speedup from the manifest)"},
       "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-wro-pq-20261125T1534.log",
       "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-qwen-code-wro-pq-1.job.log",
       "submission_timing": null
@@ -65,9 +68,9 @@
       "agent": {"harness": "qwen-code", "version": "0.28.4"},
       "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, TRITON_ATTN"},
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "AMD EPYC 9334"},
-      "anchor": {"ref_speedup": null, "upstream_ref_speedup": 11.53, "evidence": "local recalibration on the EPYC 9334: local/wro-llamacpp-simd-q5k-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
+      "anchor": {"ref_speedup": 2.600214, "upstream_ref_speedup": 11.53, "evidence": "local recalibration on the EPYC 9334: local/wro-llamacpp-simd-q5k-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
       "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-wro-llamacpp-simd-q5k-20261125T1916.log",
-      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-qwen-code-wro-q5k-1.job.log",
+      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-row-q5k-solver.job.log",
       "notes": "the solver never submitted; code/final.patch is its unsubmitted tree"
     },
     {
@@ -78,9 +81,9 @@
       "agent": {"harness": "qwen-code", "version": "0.28.4"},
       "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, TRITON_ATTN"},
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "AMD EPYC 9334"},
-      "anchor": {"ref_speedup": null, "upstream_ref_speedup": 187.500717, "evidence": "local recalibration on the EPYC 9334: local/wro-causal-delivery-vclock-coupled-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
+      "anchor": {"ref_speedup": 175.955891, "upstream_ref_speedup": 187.500717, "evidence": "local recalibration on the EPYC 9334: local/wro-causal-delivery-vclock-coupled-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
       "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-wro-causal-delivery-vclock-coupled-20261125T2127.log",
-      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-qwen-code-causal-delivery-vclock-1.job.log",
+      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-row-causal-delivery-vclock.solver.job.log",
       "submission_timing": null
     },
     {
@@ -91,11 +94,11 @@
       "agent": {"harness": "qwen-code", "version": "0.28.4"},
       "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, TRITON_ATTN"},
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "AMD EPYC 9334"},
-      "anchor": {"ref_speedup": null, "upstream_ref_speedup": 1344.398352, "evidence": "local recalibration on the EPYC 9334: local/wro-memory-accounting-sim-coupled-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
-      "serving_log": null,
-      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-qwen-code-memory-accounting-sim-1.job.log",
+      "anchor": {"ref_speedup": 1122.234676, "upstream_ref_speedup": 1344.398352, "evidence": "local recalibration on the EPYC 9334: local/wro-memory-accounting-sim-coupled-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
+      "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-wro-memory-accounting-sim-coupled-20261125T2324.log",
+      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-row-memory-accounting-sim.job.log",
       "submission_timing": null,
-      "notes": "serving_log: fill the exact file name of the memory-accounting-sim-coupled server log of 2026-11-25T2324"
+      "notes": ""
     },
     {
       "record_id": "2026-11-25-qwen-code-secure-agg-shamir-committee-1",
@@ -105,11 +108,11 @@
       "agent": {"harness": "qwen-code", "version": "0.28.4"},
       "model": {"name": "Qwen3.8-27B", "precision": "bf16", "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, TRITON_ATTN"},
       "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "AMD EPYC 9334"},
-      "anchor": {"ref_speedup": null, "upstream_ref_speedup": 57.658178, "evidence": "local recalibration on the EPYC 9334: local/wro-secure-agg-shamir-committee-coupled-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
-      "serving_log": null,
-      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-qwen-code-secure-agg-shamir-committee-1.job.log",
+      "anchor": {"ref_speedup": 50.271535, "upstream_ref_speedup": 57.658178, "evidence": "local recalibration on the EPYC 9334: local/wro-secure-agg-shamir-committee-coupled-epyc9334/tests/verifier-correctness-manifest.json (fill ref_speedup from the manifest)"},
+      "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-wro-secure-agg-shamir-committee-coupled-20261126T0119.log",
+      "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-row-secure-agg-shamir-committee.job.log",
       "submission_timing": null,
-      "notes": "both submissions were correct at about 131x but rejected by upstream's in-session check that refuses more than 2x the reference (implausible_vs_oracle), so the final score measured the starting code. serving_log: fill the exact file name of the secure-agg-shamir-committee-coupled server log of 2026-11-26T0119"
+      "notes": "both submissions were correct at about 131x but rejected by upstream's in-session check that refuses more than 2x the reference (implausible_vs_oracle), so the final score measured the starting code."
     }
   ]
 }
