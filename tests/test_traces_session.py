@@ -59,7 +59,7 @@ def session(tmp_path):
 
 def entry(s, task, **over):
     e = {'record_id': '2026-11-20-claude-code-m256', 'source': 'claude_code_session', 'run_dir': str(s.parent),
-         'session': str(s), 'slice': {'from_uuid': 'u1', 'to_uuid': 'a3'},
+         'session': str(s), 'slice': {'from_uuid': 'u1', 'until_uuid': 'u3'},
          'task_dir': str(task), 'task': {'origin': 'Erland/phibench-mi210-rows'},
          'agent': {'harness': 'claude-code', 'version': '2.9.1'}, 'model': {'name': 'claude-opus-5-5'},
          'hardware': {}, 'prompt_vs_task': 'same problem, other prompt'}
@@ -114,6 +114,24 @@ def test_slice_must_start_at_a_request(tmp_path, session):
     s, task = session
     with pytest.raises(traces.RecordError, match='not a request a person typed'):
         traces.convert({'machine': 'm', 'runs': [entry(s, task, slice={'from_uuid': 'a1'})]}, tmp_path / 'ds')
+
+
+def test_slice_ends_before_the_next_request(tmp_path, session):
+    s, task = session
+    # until_uuid must be a request too, so both ends come from session-requests
+    with pytest.raises(traces.RecordError, match='not a request a person typed'):
+        traces.convert({'machine': 'm', 'runs': [entry(s, task, slice={'from_uuid': 'u1', 'until_uuid': 'a3'})]},
+                       tmp_path / 'ds')
+    with pytest.raises(traces.RecordError, match='not after from_uuid'):
+        traces.convert({'machine': 'm', 'runs': [entry(s, task, slice={'from_uuid': 'u1', 'until_uuid': 'u0'})]},
+                       tmp_path / 'ds')
+    with pytest.raises(traces.RecordError, match='until_uuid'):  # the earlier key is refused, not ignored
+        traces.convert({'machine': 'm', 'runs': [entry(s, task, slice={'from_uuid': 'u1', 'to_uuid': 'a3'})]},
+                       tmp_path / 'ds')
+    # without until_uuid the slice runs to the end of the session, including the later request
+    traces.convert({'machine': 'm', 'runs': [entry(s, task, slice={'from_uuid': 'u1'})]}, tmp_path / 'ds')
+    rec = json.loads((tmp_path / 'ds/records/2026-11-20-claude-code-m256/record.json').read_text())
+    assert rec['conversation']['slice']['lines'] == [4, 9]
 
 
 def test_session_needs_its_task_package(tmp_path, session):

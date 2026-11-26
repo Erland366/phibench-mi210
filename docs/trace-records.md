@@ -135,9 +135,9 @@ every reply came from the harness rather than a model (Claude Code names the mod
 GEAK stops and closes its remaining steps) is kept and marked `synthetic: true`; leave it out before training.
 
 For a person's own Claude Code session (source `claude_code_session`, harness `claude-code`), the sheet entry also
-gives `session` (the session file), `slice` (`from_uuid`, the person's request for the work, and `to_uuid`, the last
-line of the work, or left out for the end of the file; `python -m phibench_mi210.traces session-requests --session
-<file>` lists the requests with their uuids); its `task_dir` is the task package whose `oracle.patch` is the session's
+gives `session` (the session file), `slice` (`from_uuid`, the person's request for the work, and `until_uuid`, their next
+request, which is not included, or left out for the end of the file; both are requests that `python -m
+phibench_mi210.traces session-requests --session <file>` lists with their uuids); its `task_dir` is the task package whose `oracle.patch` is the session's
 result. The record holds:
 
 ```

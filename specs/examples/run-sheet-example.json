@@ -8,7 +8,7 @@
    "session": "/home/you/.claude/projects/-home-you-repo/0f3c9a1e-1111-2222-3333-444455556666.jsonl",
    "slice": {
     "from_uuid": "uuid of your request for this work, from session-requests",
-    "to_uuid": "uuid of the last line of the work; leave it out to keep the session to its end"
+    "until_uuid": "uuid of your next request, from session-requests; not included; leave it out to keep the session to its end"
    },
    "task_dir": "$RESULTS/phibench-rows/tasks/lh/mi210-jais3-moe-m256",
    "task": {"origin": "Erland/phibench-mi210-rows 323e515"},

@@ -1043,26 +1043,31 @@ def session_requests(session: Path) -> list[dict]:
     return out
 
 
-def cut_session(session: Path, from_uuid: str, to_uuid: str | None) -> tuple[bytes, dict]:
-    """The original lines of a session from the line with from_uuid to the line with to_uuid (or the end), byte for
-    byte; and what was cut (line numbers, first and last timestamp, Claude Code versions)."""
+def cut_session(session: Path, from_uuid: str, until_uuid: str | None) -> tuple[bytes, dict]:
+    """The original lines of a session from your request with from_uuid up to, not including, your next request with
+    until_uuid (or to the end), byte for byte; both uuids come from session-requests. Also returns what was cut (line
+    numbers, first and last timestamp, Claude Code versions)."""
     lines = session.read_bytes().splitlines(keepends=True)
     parsed = [json.loads(l) if l.strip() else {} for l in lines]
-    start = next((i for i, o in enumerate(parsed) if o.get('uuid') == from_uuid), None)
-    if start is None:
-        raise RecordError(f'{session}: no line with uuid {from_uuid}; list the requests with "session-requests"')
-    if _request_text(parsed[start]) is None:
-        raise RecordError(f'{session}: line {start + 1} ({from_uuid}) is not a request a person typed; a slice starts '
-                          'at your request for the work')
+
+    def request_line(uuid: str, what: str) -> int:
+        i = next((i for i, o in enumerate(parsed) if o.get('uuid') == uuid), None)
+        if i is None:
+            raise RecordError(f'{session}: no line with uuid {uuid}; list the requests with "session-requests"')
+        if _request_text(parsed[i]) is None:
+            raise RecordError(f'{session}: line {i + 1} ({uuid}) is not a request a person typed; {what} must be one '
+                              'of the requests that session-requests lists')
+        return i
+    start = request_line(from_uuid, 'from_uuid')
     end = len(lines) - 1
-    if to_uuid:
-        end = next((i for i, o in enumerate(parsed) if o.get('uuid') == to_uuid), None)
-        if end is None or end < start:
-            raise RecordError(f'{session}: no line with uuid {to_uuid} after {from_uuid}')
+    if until_uuid:
+        end = request_line(until_uuid, 'until_uuid') - 1
+        if end < start:
+            raise RecordError(f'{session}: until_uuid {until_uuid} is not after from_uuid {from_uuid}')
     kept = parsed[start:end + 1]
     stamps = [o['timestamp'] for o in kept if o.get('timestamp')]
     return b''.join(lines[start:end + 1]), {
-        'lines': [start + 1, end + 1], 'from_uuid': from_uuid, 'to_uuid': kept[-1].get('uuid'),
+        'lines': [start + 1, end + 1], 'from_uuid': from_uuid, 'until_uuid': until_uuid,
         'started': min(stamps) if stamps else None, 'finished': max(stamps) if stamps else None,
         'versions': sorted({o['version'] for o in kept if o.get('version')})}
 
@@ -1084,14 +1089,15 @@ def convert_claude_code_session(entry: dict, builder: 'RecordBuilder', record: d
         raise RecordError(f'{entry["record_id"]}: "session" must name the Claude Code session file '
                           '(~/.claude/projects/<folder>/<session>.jsonl)')
     sl = entry.get('slice') or {}
-    if not sl.get('from_uuid'):
-        raise RecordError(f'{entry["record_id"]}: "slice": {{"from_uuid": ..., "to_uuid": ...}} is required; list the '
-                          'requests of the session with "session-requests"')
+    if not sl.get('from_uuid') or set(sl) - {'from_uuid', 'until_uuid'}:
+        raise RecordError(f'{entry["record_id"]}: "slice": {{"from_uuid": <your request for the work>, "until_uuid": '
+                          '<your next request, not included; leave it out to keep the session to its end>}; both '
+                          'come from "session-requests"')
     ref = Path(entry.get('task_dir') or '')
     if not entry.get('task_dir') or not (ref / 'oracle.patch').is_file():
         raise RecordError(f'{entry["record_id"]}: task_dir must name the task package whose oracle.patch is this '
                           'session\'s result (ADR 0008: the row comes first)')
-    data, cut = cut_session(session, sl['from_uuid'], sl.get('to_uuid'))
+    data, cut = cut_session(session, sl['from_uuid'], sl.get('until_uuid'))
     version = entry['agent'].get('version')
     if version is not None and version not in cut['versions']:
         raise RecordError(f'{entry["record_id"]}: sheet says Claude Code {version}, the slice says {cut["versions"]}')
