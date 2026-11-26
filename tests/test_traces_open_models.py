@@ -307,6 +307,21 @@ def test_cli_exits_2_when_a_run_is_refused(tmp_path, qwen_run):
     assert traces.main(['convert', '--sheet', str(sheet), '--out', str(tmp_path / 'ds')]) == 2
 
 
+def test_mini_swe_agent_format_error_turn_keeps_the_rejected_reply():
+    traj = {'messages': [
+        {'role': 'system', 'content': 's'}, {'role': 'user', 'content': 'task'},
+        {'role': 'user', 'content': 'Format error:\n\n<error>\nExpected exactly 1 action, found 3.\n</error>',
+         'extra': {'interrupt_type': 'FormatError', 'n_actions': 3, 'model_response': 'three commands',
+                   'response': {'choices': [{'message': {'content': 'three commands', 'reasoning_content': 'hmm'}}]}}},
+        {'role': 'user', 'content': 'Format error: again',
+         'extra': {'interrupt_type': 'FormatError', 'model_response': 'only text', 'response': None}}]}
+    rows = traces.messages_from_mini_swe_agent(traj)
+    assert [(r['role'], r.get('format_error')) for r in rows] == [
+        ('system', None), ('user', None), ('assistant', True), ('user', None), ('assistant', True), ('user', None)]
+    assert rows[2]['content'] == 'three commands' and rows[2]['reasoning'] == 'hmm'
+    assert rows[4]['content'] == 'only text' and 'reasoning' not in rows[4]
+
+
 def test_mini_swe_agent_run_becomes_a_record(tmp_path, qwen_run):
     run = qwen_run
     (run / 'stream.jsonl').unlink()

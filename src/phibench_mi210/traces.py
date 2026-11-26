@@ -516,6 +516,20 @@ def messages_from_mini_swe_agent(traj: dict) -> list[dict]:
         if m['role'] == 'exit':
             rows.append({'role': 'event', 'event': 'exit', 'status': m.get('content'), 'step': i})
             continue
+        extra = m.get('extra') or {}
+        if m['role'] == 'user' and extra.get('interrupt_type') == 'FormatError':
+            # mini-swe-agent keeps a rejected reply only inside the format-error message: restore it as the
+            # assistant turn it was, marked, before the error message.
+            resp = extra.get('response') or {}
+            reply = ((resp.get('choices') or [{}])[0].get('message') or {}) if resp else {}
+            content = reply.get('content') if reply else None
+            if content is None:
+                content = extra.get('model_response')
+            row = {'role': 'assistant', 'content': content, 'format_error': True}
+            if reply.get('reasoning_content'):
+                row['reasoning'] = reply['reasoning_content']
+            row['step'] = i
+            rows.append(row)
         row = {'role': m['role'], 'content': m.get('content')}
         reasoning = m.get('reasoning_content') or (m.get('provider_specific_fields') or {}).get('reasoning')
         if reasoning:
