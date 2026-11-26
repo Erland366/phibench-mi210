@@ -122,6 +122,20 @@ class RecordBuilder:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(json.dumps(obj, indent=1, ensure_ascii=False) + '\n')
 
+    def write_cut(self, src: Path, dest_rel: str, data: bytes, cut: str) -> Path:
+        """Store whole original lines cut out of a file (a slice of a session), refusing them if they look like they
+        hold a secret; provenance keeps the source's hash and which lines were kept."""
+        dest = self.stage / dest_rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        hits = find_secrets(dest)
+        if hits:
+            raise RecordError(f'{src} ({cut}) matches {hits}; blank the secret, note it under "scrub" in the sheet, '
+                              'convert again')
+        self.files.append({'path': dest_rel, 'source': str(src), 'source_sha256': sha256(src), 'cut': cut,
+                           'sha256': sha256(dest), 'bytes': dest.stat().st_size})
+        return dest
+
     def write_jsonl(self, dest_rel: str, rows: list[dict]) -> None:
         dest = self.stage / dest_rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -891,8 +905,133 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
                              evidence_dir=str(ev_dir))
 
 
+# ---------------------------------------------------------------------------------------------- a person's session
+
+def _request_text(obj: dict) -> str | None:
+    """The text of a line that is a person's request in a Claude Code session (not a tool result, not a harness note)."""
+    if obj.get('type') != 'user' or obj.get('isMeta') or obj.get('isSidechain'):
+        return None
+    content = (obj.get('message') or {}).get('content')
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list) and content and all(isinstance(b, dict) and b.get('type') == 'text' for b in content):
+        return '\n'.join(b.get('text', '') for b in content)
+    return None
+
+
+def session_requests(session: Path) -> list[dict]:
+    """Every request a person typed in a Claude Code session, with the uuid to start a slice at (SOP step 6)."""
+    out = []
+    for n, line in enumerate(session.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        obj = json.loads(line)
+        text = _request_text(obj)
+        if text is not None and obj.get('uuid'):
+            out.append({'line': n, 'uuid': obj['uuid'], 'timestamp': obj.get('timestamp'), 'text': text})
+    return out
+
+
+def cut_session(session: Path, from_uuid: str, to_uuid: str | None) -> tuple[bytes, dict]:
+    """The original lines of a session from the line with from_uuid to the line with to_uuid (or the end), byte for
+    byte; and what was cut (line numbers, first and last timestamp, Claude Code versions)."""
+    lines = session.read_bytes().splitlines(keepends=True)
+    parsed = [json.loads(l) if l.strip() else {} for l in lines]
+    start = next((i for i, o in enumerate(parsed) if o.get('uuid') == from_uuid), None)
+    if start is None:
+        raise RecordError(f'{session}: no line with uuid {from_uuid}; list the requests with "session-requests"')
+    if _request_text(parsed[start]) is None:
+        raise RecordError(f'{session}: line {start + 1} ({from_uuid}) is not a request a person typed; a slice starts '
+                          'at your request for the work')
+    end = len(lines) - 1
+    if to_uuid:
+        end = next((i for i, o in enumerate(parsed) if o.get('uuid') == to_uuid), None)
+        if end is None or end < start:
+            raise RecordError(f'{session}: no line with uuid {to_uuid} after {from_uuid}')
+    kept = parsed[start:end + 1]
+    stamps = [o['timestamp'] for o in kept if o.get('timestamp')]
+    return b''.join(lines[start:end + 1]), {
+        'lines': [start + 1, end + 1], 'from_uuid': from_uuid, 'to_uuid': kept[-1].get('uuid'),
+        'started': min(stamps) if stamps else None, 'finished': max(stamps) if stamps else None,
+        'versions': sorted({o['version'] for o in kept if o.get('version')})}
+
+
+def _first_timestamp(path: Path) -> str | None:
+    for line in path.read_text().splitlines():
+        if line.strip():
+            ts = json.loads(line).get('timestamp')
+            if ts:
+                return ts
+    return None
+
+
+def convert_claude_code_session(entry: dict, builder: 'RecordBuilder', record: dict) -> None:
+    """A contributor's own Claude Code session (SOP step 6): the slice from their request for the work to its end, and
+    the helper agents started inside it. Its result became the task's reference solution, so it is successful."""
+    session = Path(entry.get('session') or '')
+    if not session.is_file():
+        raise RecordError(f'{entry["record_id"]}: "session" must name the Claude Code session file '
+                          '(~/.claude/projects/<folder>/<session>.jsonl)')
+    sl = entry.get('slice') or {}
+    if not sl.get('from_uuid'):
+        raise RecordError(f'{entry["record_id"]}: "slice": {{"from_uuid": ..., "to_uuid": ...}} is required; list the '
+                          'requests of the session with "session-requests"')
+    ref = Path((entry.get('reference') or {}).get('task_dir') or '')
+    if not (ref / 'oracle.patch').is_file():
+        raise RecordError(f'{entry["record_id"]}: "reference": {{"task_dir": <the task package>}} must name the task '
+                          'whose oracle.patch is this session\'s result (ADR 0008: the row comes first)')
+    data, cut = cut_session(session, sl['from_uuid'], sl.get('to_uuid'))
+    version = entry['agent'].get('version')
+    if version is not None and version not in cut['versions']:
+        raise RecordError(f'{entry["record_id"]}: sheet says Claude Code {version}, the slice says {cut["versions"]}')
+    record['agent']['version'] = version or (cut['versions'][-1] if cut['versions'] else None)
+    main_rel = f'conversation/raw/claude/{session.stem}.slice.jsonl'
+    staged = builder.write_cut(session, main_rel, data, f'lines {cut["lines"][0]}-{cut["lines"][1]}')
+    # helper agents (subagents) that started inside the slice, byte for byte, with their meta files
+    sub_dir = session.parent / session.stem / 'subagents'
+    subs = []
+    for f in sorted(sub_dir.glob('*.jsonl')) if sub_dir.is_dir() else []:
+        ts = _first_timestamp(f)
+        if ts and cut['started'] and cut['finished'] and cut['started'] <= ts <= cut['finished']:
+            subs.append((ts, f))
+    subs.sort()
+    thinking = count_thinking(staged)
+    rows = messages_from_claude_code(staged)
+    first = next((r['content'] for r in rows if r['role'] == 'user'), None)
+    (builder.stage / 'prompt.txt').write_text(first)
+    record['prompt_source'] = "generated from the slice's first request"
+    main_chat, main_msgs = solver_chat(rows)
+    main_chat['raw'] = main_rel
+    builder.write_jsonl(main_chat['file'], main_msgs)
+    chats = [main_chat]
+    for n, (ts, f) in enumerate(subs, 2):
+        raw_rel = f'conversation/raw/claude/subagents/{f.name}'
+        builder.copy(f, raw_rel)
+        meta = f.with_suffix('.meta.json')
+        name = f.stem.removeprefix('agent-')
+        if meta.is_file():
+            builder.copy(meta, f'conversation/raw/claude/subagents/{meta.name}')
+            name = _read_json(meta).get('name') or name
+        for k, v in count_thinking(f).items():
+            thinking[k] += v
+        sub_rows = messages_from_claude_code(f)
+        rel = chat_file(n, name)
+        msgs = unify([{**r, 'agent': name} for r in sub_rows])
+        builder.write_jsonl(rel, msgs)
+        models = {r.get('model') for r in sub_rows if r['role'] == 'assistant'}
+        chats.append({'n': n, 'name': name, 'file': rel, 'messages': len(msgs),
+                      'synthetic': bool(models) and models <= {SYNTHETIC_MODEL}, 'started': ts, 'raw': raw_rel})
+    builder.copy(ref / 'oracle.patch', 'code/reference.patch')
+    record['conversation'] = {'layout': CHATS_LAYOUT, 'chats': chats, 'main': 'conversation/raw/claude',
+                              'slice': cut, 'reasoning_included': True, 'thinking_dropped': False, **thinking}
+    record['time'] = {'started': cut['started'], 'finished': cut['finished']}
+    record['outcome'].update(label='successful', reference_task_dir=str(ref),
+                             label_rule="a contributor's own session: its result is the task's reference solution")
+
+
 # source, harness -> function(entry, builder, record) that copies the files and fills the record
 ADAPTERS = {
+    ('claude_code_session', 'claude-code'): convert_claude_code_session,
     ('geak_run', 'geak'): convert_geak_run,
     ('open_model_run', 'qwen-code'): convert_qwen_code,
     ('open_model_run', 'mini-swe-agent'): convert_mini_swe_agent,
@@ -910,6 +1049,9 @@ def _convert_one(entry: dict, out: Path, machine: str) -> None:
                           f'source {entry["source"]})')
     if entry['source'] == 'open_model_run' and pvt != 'instruction':
         raise RecordError(f'{entry["record_id"]}: an open-model run is given the task\'s instruction')
+    if entry['source'] == 'codex_session':
+        raise RecordError(f'{entry["record_id"]}: no Codex reader yet; it will be written from a real Codex session '
+                          'file (~/.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl), which nobody has shared yet')
     adapter = ADAPTERS.get((entry['source'], entry['agent'].get('harness')))
     if adapter is None:
         raise RecordError(f'{entry["record_id"]}: no converter yet for source {entry["source"]} with harness '
@@ -979,6 +1121,17 @@ def chats_of_record(d: Path, rec: dict) -> list[tuple[dict, list[dict]]]:
         return [solver_chat(rows)]
     if rec['source'] == 'open_model_run' and rec['agent'].get('harness') == 'mini-swe-agent':
         return [solver_chat(messages_from_mini_swe_agent(_read_json(raw / 'trajectory.json')))]
+    if rec['source'] == 'claude_code_session':
+        out = []
+        for c in conv['chats']:
+            rows = messages_from_claude_code(d / c['raw'])
+            if c['n'] == 1:
+                entry, msgs = solver_chat(rows)
+            else:
+                msgs = unify([{**r, 'agent': c['name']} for r in rows])
+                entry = {**c, 'messages': len(msgs)}
+            out.append(({**c, **entry}, msgs))
+        return out
     if rec['source'] == 'geak_run':
         out = []
         for c in conv.get('chats') or conv['agents']:
@@ -1040,9 +1193,58 @@ def remessage(out: Path) -> list[str]:
     return done
 
 
+def _git_blob_sha1(data: bytes) -> str:
+    return hashlib.sha1(b'blob %d\0' % len(data) + data).hexdigest()
+
+
+def upload(out: Path, repo: str, message: str) -> dict:
+    """Upload the dataset folder to its private Hugging Face repo, then check that every local file is on Hugging Face
+    with the same content and that the repo is still private. Generated files of the earlier layout are removed from
+    the repo. Needs huggingface_hub (run with: uv run --with huggingface_hub ...) and a logged-in token."""
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as e:
+        raise RecordError('upload needs huggingface_hub: uv run --with huggingface_hub python -m '
+                          'phibench_mi210.traces upload ...') from e
+    if not (out / 'index.jsonl').is_file() or not (out / 'records').is_dir():
+        raise RecordError(f'{out} is not a trace dataset folder (no index.jsonl or records/)')
+    api = HfApi()
+    if not api.dataset_info(repo).private:
+        raise RecordError(f'refused: {repo} is not private (ADR 0009: traces stay private)')
+    commit = api.upload_folder(folder_path=str(out), repo_id=repo, repo_type='dataset', commit_message=message,
+                               ignore_patterns=['.cache/**', '**/.*.staging/**', '**/.chats.new/**'],
+                               delete_patterns=['records/*/conversation/messages.jsonl',
+                                                'records/*/conversation/agents/*', 'viewer/runs.jsonl'])
+    local = {p.relative_to(out).as_posix(): p for p in out.rglob('*')
+             if p.is_file() and '.cache' not in p.relative_to(out).parts}
+    remote = {e.path: e for e in api.list_repo_tree(repo, repo_type='dataset', recursive=True, expand=True)
+              if e.__class__.__name__ == 'RepoFile'}
+    bad = []
+    for rel, p in local.items():
+        e = remote.get(rel)
+        if e is None:
+            continue
+        data = p.read_bytes()
+        ok = (hashlib.sha256(data).hexdigest() == e.lfs.sha256) if e.lfs else _git_blob_sha1(data) == e.blob_id
+        if not ok:
+            bad.append(rel)
+    info = api.dataset_info(repo)
+    return {'commit': getattr(commit, 'oid', str(commit)), 'local': len(local), 'remote': len(remote),
+            'missing_on_hf': sorted(set(local) - set(remote)), 'only_on_hf': sorted(set(remote) - set(local)),
+            # Hugging Face adds its own LFS line to .gitattributes on every upload, so that file always differs
+            'hash_mismatches': [b for b in bad if b != '.gitattributes'], 'private': info.private, 'sha': info.sha}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='cmd', required=True)
+    s = sub.add_parser('session-requests', help='list the requests you typed in a Claude Code session, with the '
+                                                'uuid to start a slice at')
+    s.add_argument('--session', type=Path, required=True, help='~/.claude/projects/<folder>/<session>.jsonl')
+    u = sub.add_parser('upload', help='upload the dataset folder to its private Hugging Face repo and check it')
+    u.add_argument('--out', type=Path, required=True, help='the trace dataset folder')
+    u.add_argument('--repo', default='Erland/rsi-traces')
+    u.add_argument('--message', required=True, help='the Hugging Face commit message')
     c = sub.add_parser('convert', help='convert the runs listed in a sheet')
     c.add_argument('--sheet', type=Path, required=True)
     c.add_argument('--out', type=Path, required=True, help='the trace dataset folder')
@@ -1052,6 +1254,20 @@ def main(argv=None) -> int:
     m.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        if args.cmd == 'session-requests':
+            for r in session_requests(args.session):
+                text = ' '.join(r['text'].split())
+                print(f'line {r["line"]:>6}  {r["timestamp"]}  {r["uuid"]}  {text[:100]}')
+            return 0
+        if args.cmd == 'upload':
+            r = upload(args.out, args.repo, args.message)
+            print(f'commit {r["commit"]} | local files {r["local"]} | on Hugging Face {r["remote"]} | missing there '
+                  f'{len(r["missing_on_hf"])} | only there {len(r["only_on_hf"])} | different content '
+                  f'{len(r["hash_mismatches"])} | private {r["private"]}')
+            problems = r['missing_on_hf'] + r['only_on_hf'] + r['hash_mismatches']
+            for p in problems[:20]:
+                print('  ', p, file=sys.stderr)
+            return 2 if problems or not r['private'] else 0
         if args.cmd == 'remessage':
             done = remessage(args.out)
             print(f'rebuilt the chats of {len(done)} records ({CHATS_LAYOUT}, {MESSAGES_FORMAT})')

@@ -123,6 +123,25 @@ For a GEAK run the record holds, in place of the open-model files:
 every reply came from the harness rather than a model (Claude Code names the model `<synthetic>`, for example when
 GEAK stops and closes its remaining steps) is kept and marked `synthetic: true`; leave it out before training.
 
+For a person's own Claude Code session (source `claude_code_session`, harness `claude-code`), the sheet entry also
+gives `session` (the session file), `slice` (`from_uuid`, the person's request for the work, and `to_uuid`, the last
+line of the work, or left out for the end of the file; `python -m phibench_mi210.traces session-requests --session
+<file>` lists the requests with their uuids) and `reference` (`task_dir`, the task package whose `oracle.patch` is the
+session's result). The record holds:
+
+```
+  conversation/raw/claude/<session>.slice.jsonl   the slice: the session's original lines, byte for byte
+  conversation/raw/claude/subagents/              the helper agents that started inside the slice, with their meta files
+  conversation/chats/01-solver.jsonl              the session; 02-... one chat per helper agent
+  code/reference.patch                            the task's oracle.patch, the session's result
+```
+
+Its label is `successful`, because its result is the task's reference solution; the converter refuses the entry when
+the slice does not start at a request the person typed or the task's `oracle.patch` does not exist.
+`conversation.slice` records the line numbers, the two uuids, the first and last time and the Claude Code versions,
+and provenance keeps the whole session file's hash next to the slice's. A Codex session is refused until a Codex
+reader exists.
+
 Workspaces, baselines and profiler output stay in the run folder, which `provenance.run_dir` names. Each engineer
 attempt is listed under `submissions` with GEAK's own reported speedup, marked as self-reported; it never sets the
 label.

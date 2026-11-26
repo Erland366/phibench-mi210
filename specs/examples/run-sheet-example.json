@@ -1,0 +1,60 @@
+{
+ "about": "Example run sheet with one entry for each kind of run the converter reads (SOP step 6, docs/trace-records.md). The Qwen and GEAK entries are copied from the real sheets (specs/traces-qwen-runs-2026-11.json and specs/traces-geak-runs-2026-11.json); the Claude Code entry shows how a person's own session is described. Copy the entry that matches your run, change every value, and keep the sheet in specs/. List the requests of a Claude Code session with: python -m phibench_mi210.traces session-requests --session <file>. Convert with: python -m phibench_mi210.traces convert --sheet <sheet> --out <dataset folder>. Upload with: uv run --with huggingface_hub python -m phibench_mi210.traces upload --out <dataset folder> --message <what changed>.",
+ "machine": "auh7-4b-gpu-303",
+ "runs": [
+  {
+   "record_id": "2026-11-20-claude-code-m256",
+   "source": "claude_code_session",
+   "run_dir": "/home/you/.claude/projects/-home-you-repo",
+   "session": "/home/you/.claude/projects/-home-you-repo/0f3c9a1e-1111-2222-3333-444455556666.jsonl",
+   "slice": {
+    "from_uuid": "uuid of your request for this work, from session-requests",
+    "to_uuid": "uuid of the last line of the work; leave it out to keep the session to its end"
+   },
+   "task": {"id": "mi210-jais3-moe-m256", "bench": "lh", "kind": "performance", "origin": "Erland/phibench-mi210-rows 323e515"},
+   "agent": {"harness": "claude-code", "version": "2.1.328"},
+   "model": {"name": "claude-opus-5-5"},
+   "hardware": {"scored_on": "1 x AMD Instinct MI210"},
+   "anchor": {"ref_speedup": 1.201437, "evidence": "tests/ref_speedup.txt of the task, the median of 5 runs"},
+   "prompt_vs_task": "same problem, other prompt",
+   "reference": {"task_dir": "/data/erland/results/phibench-rows/tasks/lh/mi210-jais3-moe-m256"},
+   "notes": "Your own session is successful because its result is the task's reference solution; the converter checks that the task's oracle.patch exists."
+  },
+  {
+   "record_id": "2026-11-25-qwen-code-causal-delivery-vclock-1",
+   "source": "open_model_run",
+   "run_dir": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-qwen-code-causal-delivery-vclock-1",
+   "task": {"id": "wro-causal-delivery-vclock-coupled", "bench": "lh", "kind": "performance", "origin": "upstream Phi-Bench 3bcefac"},
+   "agent": {"harness": "qwen-code", "version": "0.28.4"},
+   "model": {"name": "Qwen3.8-27B", "precision": "bf16",
+             "served_by": "vLLM 0.32.0 ROCm, tensor parallel 4, max_model_len 131072, TRITON_ATTN"},
+   "hardware": {"served_on": "4 x AMD Instinct MI210 (GPUs 4-7)", "scored_on": "AMD EPYC 9334"},
+   "anchor": {"ref_speedup": 175.955891, "upstream_ref_speedup": 187.500717,
+              "evidence": "local recalibration on the EPYC 9334: local/wro-causal-delivery-vclock-coupled-epyc9334/tests/verifier-correctness-manifest.json"},
+   "serving_log": "/vast/users/qirong.ho/erland/phibench-apptainer/logs/serve-qwen-wro-causal-delivery-vclock-coupled-20261125T2127.log",
+   "job_log": "/vast/users/qirong.ho/erland/phibench-apptainer/runs/2026-11-25-row-causal-delivery-vclock.solver.job.log",
+   "submission_timing": null,
+   "notes": "An open-model run is given the task's instruction, so prompt_vs_task is left out (it is instruction). Its label comes from the task's verifier."
+  },
+  {
+   "record_id": "2026-10-27-geak-jais3-moe-v032-01-m256",
+   "source": "geak_run",
+   "run_dir": "/data/erland/results/geak-agent/jais3-moe-v032-01",
+   "task": {"id": "mi210-jais3-moe-m256", "bench": "lh", "kind": "performance", "origin": "Erland/phibench-mi210-rows 323e515"},
+   "agent": {"harness": "geak"},
+   "model": {"name": "claude-opus-5-5"},
+   "hardware": {"measured_on": "1 x AMD Instinct MI210 (Round check of the piece)"},
+   "anchor": {"ref_speedup": null, "note": "a GEAK run is labeled by the Round check, not by an anchor"},
+   "evidence": {"kind": "piece",
+                "scores": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/scores.json",
+                "piece": "e2-m256-decode",
+                "work_dir": "/data/erland/results/phibench-pieces/jais3-moe-v2-single-rows-rerun/e2-m256-decode/work",
+                "plan": "specs/jais3-moe-w8a16-v032-v2/pieces_single_rows_rerun.json"},
+   "row": {"provenance": "/data/erland/results/phibench-rows/provenance/mi210-jais3-moe-m256.json"},
+   "run_result": {"dir": "/data/erland/results/geak-agent/jais3-moe-v032-01.round-check-final",
+                  "note": "the run's whole result (whole MoE layer) was 1.094x, below the 1.1x rule; this one table entry passed alone on its row"},
+   "prompt_vs_task": "different problem",
+   "notes": "A GEAK run names the measurement that labels it (evidence) and, when it passed, its row."
+  }
+ ]
+}
