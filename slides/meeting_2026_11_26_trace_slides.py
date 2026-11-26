@@ -4,6 +4,7 @@
 Sources:
   m26_sop    docs/sop.md (the SOP, same text as the Google Doc), commit f31c5fd
   m26_trfmt  docs/trace-records.md, docs/adr/0008-0010, src/phibench_mi210/traces.py
+  m26_trsheet specs/traces-qwen-runs-2026-11.json, the causal-delivery entry (slide duplicated from m26_trfmt)
   m26_trset  Erland/rsi-traces index.jsonl at HF commit 0adb60d9 (15 records)
 """
 import json, sys
@@ -27,6 +28,16 @@ TABLES = {
               ['Qwen Code run', 'Every model call as sent, with reasoning', 'Task verifier, reward above 0'],
               ['mini-swe-agent run', 'Its trajectory, with reasoning', 'Task verifier, reward above 0']],
         mark={(r, 2) for r in range(4)}),
+    'm26_trsheet': dict(
+        cols=['The sheet states', 'Causal-delivery Qwen run', 'Checked against the run'], widths=[2.9, 3.5, 2.9],
+        rows=[['Run folder and source', 'open_model_run', 'The folder exists'],
+              ['Task and its kind', 'causal delivery, performance', '—'],
+              ['Agent and model', 'Qwen Code 0.28.4, Qwen3.8-27B', "Version in the run's log"],
+              ['Hardware used', '4 MI210; AMD EPYC 9334', 'The serving log exists'],
+              ['Anchor and its evidence', '175.955891', 'Anchor of the final score'],
+              ['Prompt against the task', 'instruction', 'Instruction, for a model run'],
+              ['Invalid reason, timing check', 'none; not checked yet', '—']],
+        mark=set()),
     'm26_trset': dict(
         cols=['Source', 'Runs', 'Successful', 'Unsuccessful', 'Invalid'], widths=[3.3, 1.5, 1.5, 1.5, 1.5],
         rows=[['GEAK runs (Claude agents)', '7', '3', '4', '0'],
@@ -35,7 +46,7 @@ TABLES = {
               ['All', '15', '4', '10', '1']],
         mark={(r, 2) for r in range(4)}),
 }
-LINE_Y = {'m26_sop': 4.45, 'm26_trfmt': 4.55, 'm26_trset': 3.35}
+LINE_Y = {'m26_sop': 4.45, 'm26_trfmt': 4.55, 'm26_trsheet': 5.0, 'm26_trset': 3.35}
 YELLOW = {'red': 1.0, 'green': 0xF2 / 255, 'blue': 0x7A / 255}
 
 reqs = []

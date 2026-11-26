@@ -97,9 +97,30 @@ Every run on the task becomes one record, starting with your own session and inc
 - **Label the run.** Your own run is successful, because its result became the reference solution. A later run is labeled by the task's verifier, successful when its final reward is above 0 and unsuccessful when it is 0. A run that was not a fair attempt, such as a setup error or a busy machine during timing, is invalid. The agent's own report never sets the label.
 - **Keep the raw files.** For an open model, keep every model call as sent, with its reasoning, and the harness's own log. For Claude and Codex, keep the session files and remove only the thinking and reasoning blocks. Keep the final patch and each submission's diff and score.
 - **Remove secrets.** No tokens, passwords, API keys or proxy addresses with credentials may be stored. Internal paths and node names may stay, because the trace dataset is private.
-- **Convert and store.** `python -m phibench_mi210.traces convert --sheet SHEET.json --out DATASET` writes the record. It writes every conversation in the same message shape, whatever agent produced it, so that a Claude Code session, a GEAK run and a Qwen run read the same way. The records go to the private dataset `Erland/rsi-traces`, never into the task package.
+- **Write the run sheet, then convert.** Describe every run in a run sheet (below), then run `python -m phibench_mi210.traces convert --sheet SHEET.json --out DATASET`. The converter writes one record per run, and every conversation in the same message shape, whatever agent produced it, so that a Claude Code session, a GEAK run and a Qwen run read the same way. The records go to the private dataset `Erland/rsi-traces`, never into the task package.
 
-**Example.** The source run of this task is the first GEAK MoE run, stored as one successful record with its 30 agent conversations. It is marked as having worked on a larger problem, the whole layer, because this task is one table entry of its result. Two runs of Qwen3.8-27B reached 1.143× and 1.137× against the anchor of 1.201437, so both are unsuccessful, and a third had a setup error and is invalid.
+**The run sheet.** A run sheet is a JSON file that lists the runs to convert and states, for each run, the facts that its folder does not hold. The converter reads everything else from the run folder, such as the conversation, the submissions and the final score. Write the sheet before converting and commit it in `specs/`, so that every record can be traced to the sheet that produced it. The sheet names the machine that holds the run folders once (`machine`), and then gives one entry per run with these fields.
+
+| Field | What to write | Where to find it |
+|---|---|---|
+| `record_id` | the record's name, usually the run folder's name | the run folder |
+| `source` | `claude_code_session`, `codex_session`, `geak_run` or `open_model_run` | how the run was made |
+| `run_dir` | the full path of the run folder | the run folder |
+| `task` | the task's `id`, `bench`, `kind` (`performance` or `implementation`) and `origin`, the dataset and its revision | the task's `task.toml` and its dataset |
+| `agent` | the `harness` and its `version` | the harness's own log |
+| `model` | the model's `name`, its `precision`, and `served_by` (server version, GPUs, context length) | the model server's log |
+| `hardware` | where the model ran and where the run was scored | the run's job log |
+| `anchor` | the `ref_speedup` that the score used, and the path of its evidence | the task's calibration |
+| `serving_log`, `job_log` | the model server's log and the run's job log, for an open-model run | the run's machine |
+| `prompt_vs_task` | `instruction` when the agent was given the task's `instruction.md`, otherwise `same problem, other prompt` or `different problem` | how the run was started |
+| `invalid_reason` | why the run was not a fair attempt; leave it out for a fair one | the run's logs |
+| `invalid_scores` | a final score that was thrown away, with the reason | the run folder |
+| `submission_timing`, `unclean_submissions` | `checked` once someone has checked every in-session timing for another job on the same machine, and the submissions that shared it | the machine's job logs |
+| `notes` | anything a reader of the record must know | |
+
+A GEAK run also names the measurement that sets its label and, when it is successful, its row (`docs/trace-records.md`). The converter refuses a run, and writes nothing for it, when a field is missing, a named file does not exist, the anchor differs from the one the final score used, the harness version differs from the one in the run's log, an open-model run claims another prompt than the task's instruction, or a file holds a secret. It tries every run in the sheet, lists each refusal with its reason, and never overwrites a record that is already stored.
+
+**Example.** The source run of this task is the first GEAK MoE run, stored as one successful record with its 30 agent conversations. It is marked as having worked on a larger problem, the whole layer, because this task is one table entry of its result. Two runs of Qwen3.8-27B reached 1.143× and 1.137× against the anchor of 1.201437, so both are unsuccessful, and a third had a setup error and is invalid. The Qwen runs are described in the run sheet `specs/traces-qwen-runs-2026-11.json` and the GEAK runs in `specs/traces-geak-runs-2026-11.json`.
 
 **Files.** [`Erland/rsi-traces`](https://huggingface.co/datasets/Erland/rsi-traces) (private), and the record format in `docs/trace-records.md`.
 
