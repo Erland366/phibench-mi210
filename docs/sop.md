@@ -93,13 +93,13 @@ A task counts only when all of these pass. Write down what you will run and whic
 Every run on the task becomes one record, starting with your own session and including every later run of another agent or model.
 
 - **Find your session.** Claude Code keeps each session in `~/.claude/projects/<folder>/<session>.jsonl`, with its helper agents under `<session>/subagents/`. Codex keeps each session in `~/.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl`. GEAK keeps one Claude Code conversation per agent inside its run folder.
-- **Cut the slice.** A session usually holds several pieces of work, so keep only the part from your request for this work to its end, with the failed attempts inside it.
+- **Cut the slice.** A session usually holds several pieces of work, so keep only the part from your request for this work to its end, with the failed attempts inside it. Your first request in the slice is stored as the record's prompt, and the record notes that it is not the task's instruction.
 - **Label the run.** Your own run is successful, because its result became the reference solution. A later run is labeled by the task's verifier, successful when its final reward is above 0 and unsuccessful when it is 0. A run that was not a fair attempt, such as a setup error or a busy machine during timing, is invalid. The agent's own report never sets the label.
 - **Keep the raw files.** For an open model, keep every model call as sent, with its reasoning, and the harness's own log. For Claude and Codex, keep the session files and remove only the thinking and reasoning blocks. Keep the final patch and each submission's diff and score.
 - **Remove secrets.** No tokens, passwords, API keys or proxy addresses with credentials may be stored. Internal paths and node names may stay, because the trace dataset is private.
 - **Convert and store.** `python -m phibench_mi210.traces convert --sheet SHEET.json --out DATASET` writes the record. It writes every conversation in the same message shape, whatever agent produced it, so that a Claude Code session, a GEAK run and a Qwen run read the same way. The records go to the private dataset `Erland/rsi-traces`, never into the task package.
 
-**Example.** The source run of this task is the first GEAK MoE run, stored as one successful record that holds all 38 of its agents' conversations. Two runs of Qwen3.8-27B reached 1.143× and 1.137× against the anchor of 1.201437, so both are unsuccessful, and a third had a setup error and is invalid.
+**Example.** The source run of this task is the first GEAK MoE run, stored as one successful record with its 30 agent conversations. It is marked as having worked on a larger problem, the whole layer, because this task is one table entry of its result. Two runs of Qwen3.8-27B reached 1.143× and 1.137× against the anchor of 1.201437, so both are unsuccessful, and a third had a setup error and is invalid.
 
 **Files.** [`Erland/rsi-traces`](https://huggingface.co/datasets/Erland/rsi-traces) (private), and the record format in `docs/trace-records.md`.
 
