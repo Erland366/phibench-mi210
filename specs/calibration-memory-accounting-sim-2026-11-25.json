@@ -1,0 +1,30 @@
+{
+  "frozen_on": "2026-11-25 19:25 UTC, before any verifier run of this task",
+  "approved_by_user": "2026-11-25 18:45 UTC, CONTRACT.md revision 1 (away mode, level 2): the per-row protocol and row order",
+  "question": "What is ref_speedup for upstream Phi-Bench task wro-memory-accounting-sim-coupled on this node's AMD EPYC 9334?",
+  "task": "upstream 3bcefac tasks/lh/wro-memory-accounting-sim-coupled, downloaded unchanged to /vast/users/qirong.ho/erland/phibench-apptainer/upstream/3bcefac/wro-memory-accounting-sim-coupled",
+  "image": "/vast/users/qirong.ho/erland/phibench-apptainer/images/wro-memory-accounting-sim-coupled.sif from defs/wro-memory-accounting-sim-coupled.def (scripts/gen_def.py: RUN bodies verbatim, run by /bin/sh; build-host additions TMPDIR inside the image and a deleted apt proxy config; built with an empty directory bound at /tmp); every Dockerfile check passed",
+  "upstream_anchor": "1344.398352, measured by the authors on Intel Sapphire Rapids (8 vCPU)",
+  "where": "auh7-1b-gpu-240, CPU only, one run at a time under /tmp/phibench-auh7-240-gpus.lock",
+  "quiet_node": "as specs/calibration-wro-vllm-pq-2026-11-25.json",
+  "run": "scripts/calibrate_cpu.sh (scripts/score_cpu_once.sh), patches at the package root",
+  "order": [
+    "noop x1",
+    "negative x1",
+    "oracle x5",
+    "solve x1"
+  ],
+  "pass_marks": {
+    "noop": "reward 0",
+    "negative": "reward 0",
+    "oracle": "correct, no hard fail other than reward 0 at the anchor; anchor = median of the 5",
+    "solve": "correct, speedup within 10% of the oracle median (checked by scripts/row_pipeline.sh)"
+  },
+  "use_of_result": "scripts/anchor_local.py: local copy with the manifest anchor replaced, derived image with /opt/verifier-correctness-manifest.json replaced (both test.sh and the in-session grader read only that file)",
+  "timing_record": "step times into docs/experiment-log.md",
+  "stop_on": [
+    "a busy node before or after a run",
+    "an unexpected execution failure",
+    "a pass mark missed"
+  ]
+}

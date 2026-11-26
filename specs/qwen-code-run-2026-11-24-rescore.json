@@ -1,0 +1,11 @@
+{
+  "frozen_on": "2026-11-25, before the rescore",
+  "amends": "specs/qwen-code-run-2026-11-24.json, step final_score only",
+  "approved_by_user": "2026-11-25 (\"yes please do it\": score run 3's candidate again on an idle node)",
+  "why": "run 3's final score (2026-11-24 14:16-14:21 UTC) is invalid: wm_vendor_mismatch Wan2.2 jobs on GPUs 0-2 started 8 s before it. From 13:11 UTC the solver's whole session also shared GPU 0 with that project's E29 queue (GPUs 0-3 by the user's split), so the in-session 1.4382 is not a clean number either.",
+  "candidate": "the solver's kept sandbox /tmp/phibench-agent-2028/2026-11-24-qwen-code-m256-3/sandbox, already finalized (submission 1 planted by the first final-score run); nothing in it is changed before scoring",
+  "gpu": "HIP device 4 instead of 0: by the user's split (recorded in wm_vendor_mismatch E29) this project uses GPUs 4-7. The calibration used device 0 of a node of identical MI210s.",
+  "when": "scripts/wait_idle_then.sh: every GPU of the node idle for 3 checks 60 s apart, then the GPU lock",
+  "run": "scripts/final_score.sh runs/2026-11-24-qwen-code-m256-3 TASK 4 <no server>: every GPU idle before; finalize skipped (finalize.json exists); tests/test.sh in the sandbox; every GPU idle after, or the run is kept as busy and not counted",
+  "count": "one run; the first, invalid run stays in final-busy/"
+}

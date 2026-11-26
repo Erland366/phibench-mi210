@@ -1,0 +1,13 @@
+{
+  "frozen_on": "2026-11-24, before solver run 2",
+  "amends": "specs/qwen-agent-pilot-2026-11-23.json; everything not named here is unchanged (task, image, GPUs, sampling, prompt, limits, final score, audit)",
+  "approved_by_user": "2026-11-24 (\"yeah fix it please\": the three fixes below and a second run, thinking kept on)",
+  "why": "solver run 1 (runs/2026-11-23-qwen-m256-1) is invalid: one model reply ran past litellm's 600 s client timeout because decoding slowed to about 5 tokens/s at 50k context, and the final score could not bind /tests",
+  "changes": {
+    "attention_backend": "vLLM --attention-backend TRITON_ATTN instead of the default ROCM_ATTN. Decode, one request, 256 tokens: ROCM_ATTN 24.1 tok/s at 6k context and 5.1 at 50k; TRITON_ATTN 49.8 and 40.8; ROCM_AITER_UNIFIED_ATTN does not start on gfx90a (runs/2026-11-24-decode-backends)",
+    "model_request_timeout": "3600 s per model reply (litellm timeout), was litellm's default 600 s",
+    "final_score": "create the empty directory /tests in the solver's sandbox just before the verifier, so the read-only bind of tests/ works; the image itself has no /tests"
+  },
+  "interference_check": "not repeated: the server holds the same GPUs and memory and is idle while submit.sh scores; the attention backend changes only the server's kernels",
+  "runs": "solver run 2 on m256, one run: runs/2026-11-24-qwen-m256-2"
+}
