@@ -20,7 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 
-SOURCES = ('claude_code_session', 'geak_attempt', 'open_model_run')
+SOURCES = ('claude_code_session', 'codex_session', 'geak_run', 'open_model_run')
 LABELS = ('successful', 'unsuccessful', 'invalid', 'unscored')
 
 # Patterns that must never be stored (ADR 0009). A hit refuses the record; the person blanks the secret, notes it in
@@ -111,6 +111,21 @@ class RecordBuilder:
         shutil.copy2(src, dest)
         self.files.append({'path': dest_rel, 'source': str(src), 'sha256': sha256(dest), 'bytes': dest.stat().st_size})
 
+    def copy_transformed(self, src: Path, dest_rel: str, fn, what: str) -> int:
+        """Store a changed copy of an original file (for example a Claude trace without its thinking blocks): the
+        secret check runs on the original, and provenance keeps both hashes and what was changed."""
+        if not src.is_file():
+            raise RecordError(f'missing file {src}')
+        hits = find_secrets(src)
+        if hits:
+            raise RecordError(f'{src} matches {hits}; blank the secret, note it under "scrub" in the sheet, convert again')
+        dest = self.stage / dest_rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        n = fn(src, dest)
+        self.files.append({'path': dest_rel, 'source': str(src), 'source_sha256': sha256(src),
+                           'sha256': sha256(dest), 'bytes': dest.stat().st_size, 'changed': what})
+        return n
+
     def copy_tree(self, src: Path, dest_rel: str) -> None:
         if not src.is_dir():
             raise RecordError(f'missing folder {src}')
@@ -171,7 +186,7 @@ def _viewer_message(m: dict) -> dict:
             'content': content if isinstance(content, str) or content is None else _text_of(content),
             'reasoning': m.get('reasoning'),
             'tool_calls': json.dumps(m['tool_calls'], ensure_ascii=False) if m.get('tool_calls') else None,
-            'tool_call_id': m.get('tool_call_id')}
+            'tool_call_id': m.get('tool_call_id'), 'agent': m.get('agent')}
 
 
 DATASET_CARD = """---
@@ -567,8 +582,251 @@ def convert_mini_swe_agent(entry: dict, builder: 'RecordBuilder', record: dict) 
     _final_score(entry, run, builder, record)
 
 
+# ---------------------------------------------------------------------------------------------------- Claude Code
+
+THINKING_BLOCKS = ('thinking', 'redacted_thinking')
+
+
+def strip_thinking(src: Path, dest: Path) -> int:
+    """Copy a Claude Code JSONL file without its thinking blocks (ADR 0008); every other field stays as recorded.
+    Returns the number of blocks removed."""
+    removed = 0
+    with open(src) as fin, open(dest, 'w') as fout:
+        for line in fin:
+            if not line.strip():
+                fout.write(line)
+                continue
+            obj = json.loads(line)
+            msg = obj.get('message')
+            if isinstance(msg, dict) and isinstance(msg.get('content'), list):
+                kept = [b for b in msg['content'] if not (isinstance(b, dict) and b.get('type') in THINKING_BLOCKS)]
+                removed += len(msg['content']) - len(kept)
+                msg['content'] = kept
+            fout.write(json.dumps(obj, ensure_ascii=False) + '\n')
+    return removed
+
+
+def _tool_text(content) -> str:
+    if isinstance(content, list):
+        return '\n'.join(b.get('text', '') if isinstance(b, dict) else str(b) for b in content)
+    return '' if content is None else str(content)
+
+
+def messages_from_claude_code(path: Path) -> list[dict]:
+    """One Claude Code conversation as messages: an assistant reply split over several lines (same message id) is
+    joined; tool results become tool messages; thinking and the harness's own bookkeeping lines are left out."""
+    rows, current = [], None
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        obj = json.loads(line)
+        kind, msg = obj.get('type'), obj.get('message')
+        if kind not in ('user', 'assistant') or not isinstance(msg, dict):
+            continue
+        content = msg.get('content')
+        if kind == 'assistant':
+            if current is None or current['_id'] != msg.get('id'):
+                current = {'role': 'assistant', 'content': '', 'tool_calls': [], '_id': msg.get('id'),
+                           'model': msg.get('model'), 'timestamp': obj.get('timestamp')}
+                rows.append(current)
+            for b in content if isinstance(content, list) else [{'type': 'text', 'text': content or ''}]:
+                if b.get('type') == 'text':
+                    current['content'] = (current['content'] + '\n' if current['content'] else '') + b.get('text', '')
+                elif b.get('type') == 'tool_use':
+                    current['tool_calls'].append({'id': b.get('id'), 'type': 'function', 'function': {
+                        'name': b.get('name'), 'arguments': json.dumps(b.get('input'), ensure_ascii=False)}})
+            continue
+        current = None
+        if isinstance(content, str):
+            rows.append({'role': 'user', 'content': content, 'timestamp': obj.get('timestamp')})
+            continue
+        for b in content or []:
+            if b.get('type') == 'tool_result':
+                rows.append({'role': 'tool', 'tool_call_id': b.get('tool_use_id'), 'content': _tool_text(b.get('content')),
+                             'is_error': bool(b.get('is_error')), 'timestamp': obj.get('timestamp')})
+            elif b.get('type') == 'text':
+                rows.append({'role': 'user', 'content': b.get('text', ''), 'timestamp': obj.get('timestamp')})
+    for r in rows:
+        r.pop('_id', None)
+        if r.get('tool_calls') == []:
+            r.pop('tool_calls')
+    return rows
+
+
+# ---------------------------------------------------------------------------------------------------- GEAK runs
+
+ROW_RULE_MIN = 1.1  # the paper's minimum; the rule a GEAK result had to pass to become a row (ADR 0010)
+
+# The GEAK working files worth keeping with the record (relative to exp/team_task_*/task/); workspaces, baselines
+# and profiler output stay in the run folder, which provenance names.
+GEAK_KEEP = ('*.md', '*.json', '*.jsonl', '*.diff', 'round_*/engineer_*/worker_result.json',
+             'round_*/engineer_*/report.md', 'round_*/engineer_*/best_patch.diff', 'round_*/engineer_*/verify/*.log',
+             'round_*/integrate/*.diff', 'round_*/integrate/*.log', 'round_*/*.md', 'round_*/*.json')
+
+
+def geak_agents(run: Path) -> list[dict]:
+    """The agents of a GEAK run, in order, from chat/README.md and each chat file's Source line."""
+    readme = run / 'chat' / 'README.md'
+    if not readme.is_file():
+        raise RecordError(f'missing {readme}: the per-agent index of the GEAK run')
+    agents = []
+    for line in readme.read_text().splitlines():
+        cells = [c.strip() for c in line.strip().strip('|').split('|')]
+        if len(cells) < 7 or not cells[0].isdigit():
+            continue
+        md = re.search(r'\(([^)]+)\)', cells[6])
+        md_path = run / 'chat' / (md.group(1) if md else cells[6])
+        src = re.search(r'^Source: `([^`]+)`', md_path.read_text(), re.M) if md_path.is_file() else None
+        if src is None:
+            raise RecordError(f'{md_path}: no "Source:" line naming the agent\'s conversation file')
+        agents.append({'n': int(cells[0]), 'started': cells[1], 'role': cells[2], 'models': cells[5],
+                       'chat_file': md_path.name, 'source': src.group(1)})
+    if not agents:
+        raise RecordError(f'{readme}: no agents listed')
+    return agents
+
+
+def geak_evidence(entry: dict) -> dict:
+    """The label of a GEAK run from its independent measurement (ADR 0010), never from GEAK's own report."""
+    ev = entry.get('evidence')
+    if not ev or ev.get('kind') not in ('round_check', 'piece'):
+        raise RecordError(f'{entry["record_id"]}: evidence {{"kind": "round_check" | "piece", ...}} is required')
+    if ev['kind'] == 'round_check':
+        v = _read_json(Path(ev['dir']) / 'verdict.json')
+        s = v.get('summary')
+        if s is None:  # e.g. "no_candidate": GEAK committed nothing, so there was nothing to measure
+            return {'passed': False, 'speedup': None, 'verdict': v.get('verdict'), 'reason': v.get('reason'),
+                    'rule': f'Round check: verdict pass, correctness PASS, control identical, score >= {ROW_RULE_MIN}'}
+        ok = (s.get('verdict') == 'pass' and s.get('correctness') == 'PASS' and s.get('control_identical') is True
+              and not s.get('cases_failed'))
+        score = s.get('score_speedup')
+        return {'passed': bool(ok and score is not None and score >= ROW_RULE_MIN), 'speedup': score,
+                'verdict': s.get('verdict'), 'correctness': s.get('correctness'),
+                'control_identical': s.get('control_identical'),
+                'rule': f'Round check: verdict pass, correctness PASS, control identical, score >= {ROW_RULE_MIN}'}
+    scores = _read_json(Path(ev['scores']))
+    hit = [p for p in scores if p.get('id') == ev['piece']]
+    if len(hit) != 1:
+        raise RecordError(f'{entry["record_id"]}: piece {ev["piece"]!r} not found once in {ev["scores"]}')
+    p = hit[0]
+    return {'passed': bool(p.get('qualifies')), 'speedup': p.get('target_speedup'), 'target_rows': p.get('target_rows'),
+            'whole_layer_speedup': p.get('whole_layer_speedup'), 'correctness': p.get('correctness'),
+            'reasons': p.get('reasons', []), 'rule': f'piece rule of the frozen plan {ev.get("plan", "?")}'}
+
+
+def _check_row(entry: dict, evidence_dir: str) -> None:
+    """A successful GEAK record needs its row, and the row's provenance must name this run and this evidence."""
+    row = entry.get('row')
+    if not row or not row.get('provenance'):
+        raise RecordError(f'{entry["record_id"]}: the run passed, so it is a successful record only with its row; '
+                          'give "row": {"provenance": <the row\'s provenance json>} (ADR 0008, 0010)')
+    prov = _read_json(Path(row['provenance']))
+    if Path(prov['run']['dir']).resolve() != Path(entry['run_dir']).resolve():
+        raise RecordError(f'{entry["record_id"]}: the row\'s provenance names run {prov["run"]["dir"]}, not this run')
+    if Path(prov['round_check']['dir']).resolve() != Path(evidence_dir).resolve():
+        raise RecordError(f'{entry["record_id"]}: the row was accepted on {prov["round_check"]["dir"]}, '
+                          f'not on the evidence {evidence_dir}')
+    if prov.get('row', {}).get('task_dir') != entry['task']['id']:
+        raise RecordError(f'{entry["record_id"]}: the provenance is for row {prov.get("row", {}).get("task_dir")!r}, '
+                          f'not task {entry["task"]["id"]!r}')
+    piece = entry['evidence'].get('piece')
+    if piece is not None and (prov.get('piece') or {}).get('id') != piece:
+        raise RecordError(f'{entry["record_id"]}: the row came from piece {(prov.get("piece") or {}).get("id")!r}, '
+                          f'not {piece!r}')
+
+
+def _copy_matching(builder: 'RecordBuilder', base: Path, patterns: tuple, dest_rel: str) -> list[str]:
+    copied = set()
+    for pat in patterns:
+        for f in sorted(base.glob(pat)):
+            rel = f.relative_to(base).as_posix()
+            if f.is_file() and rel not in copied:
+                builder.copy(f, f'{dest_rel}/{rel}')
+                copied.add(rel)
+    return sorted(copied)
+
+
+def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> None:
+    run = Path(entry['run_dir'])
+    outcome = _read_json(run / 'outcome.json')
+    for name in ('outcome.json', 'receipt.json', 'driver-spec.json', 'driver-result.json', 'container.log',
+                 'transcript.jsonl'):
+        _optional(builder, run / name, f'harness/{name}')
+    # the conversations: every agent's Claude Code file, thinking removed, plus the readable copies
+    claude_root = run / 'home' / '.claude' / 'projects'
+    files = sorted(claude_root.rglob('*.jsonl')) if claude_root.is_dir() else []
+    if not files:
+        raise RecordError(f'{entry["record_id"]}: no Claude Code conversations under {claude_root}')
+    removed = 0
+    for f in files:
+        removed += builder.copy_transformed(f, f'conversation/raw/claude/{f.relative_to(claude_root).as_posix()}',
+                                            strip_thinking, 'thinking blocks removed')
+    _optional(builder, run / 'chat', 'conversation/readable')
+    agents, all_rows = [], []
+    for a in geak_agents(run):
+        src = Path(a['source'])
+        if not src.is_file():
+            raise RecordError(f'{entry["record_id"]}: agent {a["n"]} ({a["role"]}) conversation {src} is missing')
+        rows = messages_from_claude_code(src)
+        slug = re.sub(r'[^A-Za-z0-9]+', '-', a['role']).strip('-').lower()
+        rel = f'conversation/agents/{a["n"]:02d}-{slug}.jsonl'
+        builder.write_jsonl(rel, rows)
+        raw_rel = (f'conversation/raw/claude/{src.relative_to(claude_root).as_posix()}'
+                   if claude_root in src.parents else None)
+        agents.append({**a, 'raw': raw_rel, 'messages_file': rel, 'messages': len(rows)})
+        all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
+    builder.write_jsonl('conversation/messages.jsonl', all_rows)
+    record['conversation'] = {'main': 'conversation/raw/claude', 'readable': 'conversation/readable',
+                              'agents': agents, 'reasoning_included': False, 'thinking_dropped': True,
+                              'thinking_blocks_removed': removed}
+    record['model']['transcript_models'] = outcome.get('transcript_models')
+    record['outcome']['harness_status'] = outcome.get('status')
+    record['time'] = {'seconds': outcome.get('seconds')}
+    # GEAK's own working files, and each engineer attempt with GEAK's own (self-reported) result
+    tasks = sorted((run / 'exp').glob('team_task_*/task'))
+    if len(tasks) != 1:
+        raise RecordError(f'{entry["record_id"]}: expected one exp/team_task_*/task folder, found {len(tasks)}')
+    task_dir = tasks[0]
+    _copy_matching(builder, task_dir, GEAK_KEEP, 'harness/geak')
+    for wr in sorted(task_dir.glob('round_*/engineer_*/worker_result.json')):
+        w = json.loads(wr.read_text())
+        rel = wr.parent.relative_to(task_dir).as_posix()
+        record['submissions'].append({
+            'n': f'{wr.parent.parent.name}/{wr.parent.name}', 'engineer': w.get('engineer_id'),
+            'specialty': w.get('specialty'), 'strategy': w.get('strategy'), 'geak_status': w.get('status'),
+            'geak_reported_speedup': w.get('speedup_weighted'), 'measurement_valid': w.get('measurement_valid'),
+            'diff': f'harness/geak/{rel}/best_patch.diff' if (wr.parent / 'best_patch.diff').is_file() else None,
+            'note': 'self-reported by GEAK; not the label'})
+    if (task_dir / 'final_patch.diff').is_file():
+        builder.copy(task_dir / 'final_patch.diff', 'code/final.patch')
+    # the independent measurement that sets the label
+    ev = entry['evidence']
+    result = geak_evidence(entry)
+    ev_dir = Path(ev['dir'] if ev['kind'] == 'round_check' else ev['work_dir'])
+    _copy_matching(builder, ev_dir, ('prepare.json', 'verdict.json', '*.log'), 'verifier/round-check')
+    for log in sorted(ev_dir.parent.glob(ev_dir.name + '.*.log')):
+        builder.copy(log, f'verifier/{log.name}')
+    if ev['kind'] == 'piece':
+        builder.copy(Path(ev['scores']), 'verifier/piece-scores.json')
+        _optional(builder, ev_dir.parent / 'piece.patch', 'code/reference.patch')
+    prep = ev_dir / 'prepare.json'
+    if prep.is_file():
+        cand = (json.loads(prep.read_text()).get('source') or {}).get('candidate_dir')
+        if cand and Path(cand).is_dir():
+            _copy_matching(builder, Path(cand), ('*.py', '*.json'), 'code/final')
+    if result['passed']:
+        _check_row(entry, str(ev_dir))
+        lab = 'successful'
+    else:
+        lab = 'unsuccessful'
+    record['outcome'].update(label=lab, label_rule=result.pop('rule'), speedup=result.pop('speedup'),
+                             reward=None, evidence={k: v for k, v in result.items() if k != 'passed'},
+                             evidence_dir=str(ev_dir))
+
+
 # source, harness -> function(entry, builder, record) that copies the files and fills the record
 ADAPTERS = {
+    ('geak_run', 'geak'): convert_geak_run,
     ('open_model_run', 'qwen-code'): convert_qwen_code,
     ('open_model_run', 'mini-swe-agent'): convert_mini_swe_agent,
 }
@@ -584,7 +842,12 @@ def _convert_one(entry: dict, out: Path, machine: str) -> None:
     try:
         record = base_record(entry, machine)
         adapter(entry, builder, record)
-        record['outcome']['label'] = label(record['outcome'].get('reward'), entry.get('invalid_reason'))
+        # A reader that labels by its own rule (GEAK: the Round check) sets the label itself; otherwise the task's
+        # verifier reward decides. An invalid reason always wins.
+        preset = record['outcome'].get('label')
+        record['outcome']['label'] = ('invalid' if entry.get('invalid_reason') else
+                                      preset or label(record['outcome'].get('reward'), None))
+        record['outcome'].setdefault('label_rule', "task verifier, Φ-Bench reward > 0")
         if entry.get('invalid_reason'):
             record['outcome']['invalid_reason'] = entry['invalid_reason']
         builder.commit(record)

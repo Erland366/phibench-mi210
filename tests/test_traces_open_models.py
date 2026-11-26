@@ -214,7 +214,7 @@ def test_viewer_rows_have_one_shape(tmp_path, qwen_run):
     runs = [json.loads(l) for l in (out / 'viewer/runs.jsonl').read_text().splitlines()]
     assert len(runs) == 1 and runs[0]['label'] == 'successful' and runs[0]['submissions'] == 2
     msgs = runs[0]['messages']
-    assert {tuple(sorted(m)) for m in msgs} == {('content', 'event', 'reasoning', 'role', 'tool_call_id', 'tool_calls')}
+    assert {tuple(sorted(m)) for m in msgs} == {('agent', 'content', 'event', 'reasoning', 'role', 'tool_call_id', 'tool_calls')}
     assert all(m['content'] is None or isinstance(m['content'], str) for m in msgs)
     assert isinstance(msgs[2]['tool_calls'], str)
     assert (out / 'README.md').read_text().startswith('---\nconfigs:')

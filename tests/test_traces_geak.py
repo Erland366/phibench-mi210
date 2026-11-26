@@ -1,0 +1,190 @@
+"""The Claude Code and GEAK readers, on a small GEAK run folder shaped like jais3-moe-v2-v032-01."""
+import json
+
+import pytest
+
+from phibench_mi210 import traces
+
+
+def jl(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+
+
+def write(path, obj):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(obj if isinstance(obj, str) else json.dumps(obj))
+
+
+AGENT_LINES = [
+    {'type': 'user', 'message': {'role': 'user', 'content': 'You are the engineer.'}, 'timestamp': 't0'},
+    {'type': 'assistant', 'message': {'id': 'm1', 'role': 'assistant', 'model': 'claude-opus-5-5',
+                                      'content': [{'type': 'thinking', 'thinking': '', 'signature': 'sig'}]}},
+    {'type': 'assistant', 'message': {'id': 'm1', 'role': 'assistant', 'model': 'claude-opus-5-5',
+                                      'content': [{'type': 'text', 'text': 'Reading the kernel.'}]}},
+    {'type': 'assistant', 'message': {'id': 'm1', 'role': 'assistant', 'model': 'claude-opus-5-5',
+                                      'content': [{'type': 'tool_use', 'id': 'tu1', 'name': 'Read',
+                                                   'input': {'file_path': 'k.py'}}]}},
+    {'type': 'attachment', 'attachment': {'kind': 'reminder'}},
+    {'type': 'user', 'message': {'role': 'user', 'content': [
+        {'type': 'tool_result', 'tool_use_id': 'tu1', 'content': 'def k(): ...'}]}},
+    {'type': 'assistant', 'message': {'id': 'm2', 'role': 'assistant', 'model': 'claude-opus-5-5',
+                                      'content': [{'type': 'text', 'text': 'Done.'}]}},
+]
+
+
+def test_claude_code_messages_join_split_replies_and_skip_thinking(tmp_path):
+    f = tmp_path / 'a.jsonl'
+    jl(f, AGENT_LINES)
+    rows = traces.messages_from_claude_code(f)
+    assert [r['role'] for r in rows] == ['user', 'assistant', 'tool', 'assistant']
+    assert rows[1]['content'] == 'Reading the kernel.' and rows[1]['tool_calls'][0]['id'] == 'tu1'
+    assert json.loads(rows[1]['tool_calls'][0]['function']['arguments']) == {'file_path': 'k.py'}
+    assert rows[2] == {'role': 'tool', 'tool_call_id': 'tu1', 'content': 'def k(): ...', 'is_error': False,
+                       'timestamp': None}
+    assert not any('thinking' in json.dumps(r) for r in rows)
+
+
+def test_strip_thinking_keeps_everything_else(tmp_path):
+    src, dest = tmp_path / 'a.jsonl', tmp_path / 'b.jsonl'
+    jl(src, AGENT_LINES)
+    assert traces.strip_thinking(src, dest) == 1
+    out = [json.loads(l) for l in dest.read_text().splitlines()]
+    assert len(out) == len(AGENT_LINES)
+    assert out[1]['message']['content'] == [] and out[2] == AGENT_LINES[2] and out[4] == AGENT_LINES[4]
+
+
+@pytest.fixture
+def geak(tmp_path):
+    run = tmp_path / 'geak-agent' / 'jais3-moe-v2-v032-01'
+    proj = run / 'home/.claude/projects/-proj'
+    top, eng = proj / 'sess.jsonl', proj / 'sess/subagents/workflows/wf_1/agent-a1.jsonl'
+    jl(top, AGENT_LINES[:1] + AGENT_LINES[-1:])
+    jl(eng, AGENT_LINES)
+    write(run / 'chat/01-top-level-agent.md', f'# top-level agent\n\nSource: `{top}`\n')
+    write(run / 'chat/02-eng-r1_d0-compute.md', f'# eng r1_d0\n\nSource: `{eng}`\n')
+    write(run / 'chat/README.md',
+          '| # | Started (UTC) | Role | Messages | Tool calls | Models | File |\n|---|---|---|---|---|---|---|\n'
+          '| 1 | 08:42:03 | top-level agent | 2 | 0 | claude-opus-5-5 | [01-top-level-agent.md](01-top-level-agent.md) |\n'
+          '| 2 | 08:53:19 | eng r1_d0:compute | 4 | 1 | claude-opus-5-5 | [02-eng-r1_d0-compute.md](02-eng-r1_d0-compute.md) |\n')
+    write(run / 'outcome.json', {'status': 'incomplete', 'seconds': 5470.3, 'transcript_models': {'claude-opus-5-5': 540}})
+    write(run / 'transcript.jsonl', '{"type": "SystemMessage"}\n')
+    task = run / 'exp/team_task_1/task'
+    write(task / 'roadmap.md', 'plan')
+    write(task / 'round_1/engineer_0/worker_result.json',
+          {'engineer_id': 'r1_d0', 'specialty': 'compute', 'strategy': 'retune', 'status': 'partial',
+           'speedup_weighted': 1.0149, 'measurement_valid': True})
+    write(task / 'round_1/engineer_0/best_patch.diff', 'diff\n')
+    write(task / 'round_1/engineer_0/workspace/big.bin', 'x' * 100)
+    cand = run.parent / 'jais3-moe-v2-v032-01.current-best'
+    write(cand / 'moe_w8a16.py', 'fast')
+    rc = run.parent / 'jais3-moe-v2-v032-01.round-check-current'
+    write(rc / 'prepare.json', {'source': {'kind': 'directory', 'candidate_dir': str(cand)}})
+    write(rc / 'verdict.json', {'summary': {'verdict': 'pass', 'correctness': 'PASS', 'control_identical': True,
+                                            'score_speedup': 1.1306, 'cases_failed': []}})
+    write(run.parent / 'jais3-moe-v2-v032-01.round-check-current.measure.log', 'measured\n')
+    prov = tmp_path / 'provenance.json'
+    write(prov, {'run': {'dir': str(run)}, 'round_check': {'dir': str(rc)},
+                 'row': {'task_dir': 'mi210-jais3-routed-moe-w8a16'}})
+    return run, rc, prov
+
+
+def geak_entry(run, rc, prov, **over):
+    e = {'record_id': 'geak-moe-v2', 'source': 'geak_run', 'run_dir': str(run),
+         'task': {'id': 'mi210-jais3-routed-moe-w8a16', 'bench': 'lh', 'kind': 'performance',
+                  'origin': 'Erland/phibench-mi210-rows 323e515'},
+         'agent': {'harness': 'geak'}, 'model': {'name': 'claude-opus-5-5'}, 'hardware': {'scored_on': 'MI210'},
+         'anchor': {'ref_speedup': None}, 'evidence': {'kind': 'round_check', 'dir': str(rc)},
+         'row': {'provenance': str(prov)}}
+    e.update(over)
+    return e
+
+
+def load(out, rid='geak-moe-v2'):
+    return json.loads((out / 'records' / rid / 'record.json').read_text())
+
+
+def test_geak_run_with_its_row_is_successful(tmp_path, geak):
+    out = tmp_path / 'ds'
+    traces.convert({'machine': 'm', 'runs': [geak_entry(*geak)]}, out)
+    d, rec = out / 'records/geak-moe-v2', load(out)
+    assert rec['outcome']['label'] == 'successful' and rec['outcome']['speedup'] == 1.1306
+    assert rec['outcome']['label_rule'].startswith('Round check') and rec['outcome']['reward'] is None
+    assert [a['role'] for a in rec['conversation']['agents']] == ['top-level agent', 'eng r1_d0:compute']
+    assert rec['conversation']['thinking_blocks_removed'] == 1
+    assert rec['submissions'][0]['geak_reported_speedup'] == 1.0149
+    assert (d / 'harness/geak/round_1/engineer_0/best_patch.diff').is_file()
+    assert not (d / 'harness/geak/round_1/engineer_0/workspace').exists()
+    assert (d / 'code/final/moe_w8a16.py').read_text() == 'fast'
+    assert (d / 'verifier/round-check/verdict.json').is_file()
+    assert (d / 'verifier/jais3-moe-v2-v032-01.round-check-current.measure.log').is_file()
+    raw = list((d / 'conversation/raw/claude').rglob('*.jsonl'))
+    assert len(raw) == 2 and not any('"thinking"' in f.read_text() for f in raw)
+    changed = {f['path'].rsplit('/', 1)[-1]: f for f in rec['provenance']['files'] if f.get('changed')}
+    assert set(changed) == {'sess.jsonl', 'agent-a1.jsonl'}
+    assert changed['agent-a1.jsonl']['source_sha256'] != changed['agent-a1.jsonl']['sha256']  # its thinking went
+    assert changed['sess.jsonl']['source_sha256'] == changed['sess.jsonl']['sha256']  # it had none
+    msgs = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
+    assert {m['agent'] for m in msgs} == {'top-level agent', 'eng r1_d0:compute'}
+
+
+def test_passed_run_without_its_row_is_refused(tmp_path, geak):
+    e = geak_entry(*geak)
+    del e['row']
+    with pytest.raises(traces.RecordError, match='only with its row'):
+        traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
+
+
+def test_row_must_name_this_run(tmp_path, geak):
+    run, rc, prov = geak
+    write(prov, {'run': {'dir': '/elsewhere'}, 'round_check': {'dir': str(rc)},
+                 'row': {'task_dir': 'mi210-jais3-routed-moe-w8a16'}})
+    with pytest.raises(traces.RecordError, match='names run'):
+        traces.convert({'machine': 'm', 'runs': [geak_entry(run, rc, prov)]}, tmp_path / 'ds')
+
+
+def test_slow_run_is_unsuccessful_without_a_row(tmp_path, geak):
+    run, rc, prov = geak
+    write(rc / 'verdict.json', {'summary': {'verdict': 'pass', 'correctness': 'PASS', 'control_identical': True,
+                                            'score_speedup': 1.0938, 'cases_failed': []}})
+    e = geak_entry(run, rc, prov, task={'id': 'geak:jais3-moe-w8a16-v032', 'bench': 'lh', 'kind': 'performance',
+                                        'origin': 'GEAK task, no Phi-Bench row'})
+    del e['row']
+    traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
+    rec = load(tmp_path / 'ds')
+    assert rec['outcome']['label'] == 'unsuccessful' and rec['outcome']['speedup'] == 1.0938
+
+
+def test_no_candidate_is_unsuccessful(tmp_path, geak):
+    run, rc, prov = geak
+    write(rc / 'verdict.json', {'verdict': 'no_candidate', 'reason': 'final_patch.diff is empty'})
+    e = geak_entry(run, rc, prov)
+    del e['row']
+    traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
+    rec = load(tmp_path / 'ds')
+    assert rec['outcome']['label'] == 'unsuccessful'
+    assert rec['outcome']['evidence']['verdict'] == 'no_candidate'
+
+
+def test_piece_evidence_labels_by_its_qualifies_flag(tmp_path, geak):
+    run, rc, prov = geak
+    work = tmp_path / 'pieces/e2-m256-decode/work'
+    write(work / 'verdict.json', {'summary': {'verdict': 'not_faster'}})
+    write(work.parent / 'piece.patch', '+ 256 entry\n')
+    scores = tmp_path / 'pieces/scores.json'
+    write(scores, [{'id': 'e2-m256-decode', 'qualifies': True, 'target_speedup': 1.2157, 'target_rows': ['m256'],
+                    'whole_layer_speedup': 1.0122, 'correctness': 'PASS', 'reasons': []}])
+    write(prov, {'run': {'dir': str(run)}, 'round_check': {'dir': str(work)}, 'row': {'task_dir': 'mi210-jais3-moe-m256'},
+                 'piece': {'id': 'e2-m256-decode'}})
+    e = geak_entry(run, rc, prov, task={'id': 'mi210-jais3-moe-m256', 'bench': 'lh', 'kind': 'performance',
+                                        'origin': 'Erland/phibench-mi210-rows 323e515'},
+                   evidence={'kind': 'piece', 'scores': str(scores), 'piece': 'e2-m256-decode', 'work_dir': str(work)})
+    traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
+    rec = load(tmp_path / 'ds')
+    assert rec['outcome']['label'] == 'successful' and rec['outcome']['speedup'] == 1.2157
+    assert (tmp_path / 'ds/records/geak-moe-v2/code/reference.patch').read_text() == '+ 256 entry\n'
+
+
+def test_invalid_reason_still_wins_for_geak(tmp_path, geak):
+    traces.convert({'machine': 'm', 'runs': [geak_entry(*geak, invalid_reason='driver crashed')]}, tmp_path / 'ds')
+    assert load(tmp_path / 'ds')['outcome']['label'] == 'invalid'
