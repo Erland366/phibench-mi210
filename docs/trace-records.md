@@ -146,12 +146,34 @@ never sets it.
 
 ## `messages.jsonl`
 
-One line per message, in the OpenAI chat shape so that every source looks the same:
-`{"role": "system" | "user" | "assistant" | "tool", "content": ..., "reasoning": ..., "tool_calls": [...],
-"tool_call_id": ..., "call": <index of the model call that produced or first sent it>}`.
-Where the harness compacted its history, a line `{"role": "event", "event": "compaction", "summary": ...}` marks
-the point, and the raw calls in `raw/` show exactly what the model saw after it. `reasoning` is filled for open
-models and left out for Claude.
+Every record has the conversation in one shape (`messages-v1`), whatever the source: a person's Claude Code or
+Codex session, a GEAK run, or an open model's run. The raw files next to it stay in each tool's own format. Each line
+is one message with exactly these fields, in this order:
+
+| Field | Holds |
+|---|---|
+| `turn` | its position in the file, from 0 |
+| `role` | `system`, `user`, `assistant`, `tool`, or `event` for something the harness did (see below) |
+| `content` | plain text (a message sent as several text parts is joined with newlines; `extra.content_parts` says how many) |
+| `reasoning` | the model's own reasoning, for open models; `null` for Claude and Codex, whose thinking is dropped |
+| `tool_calls` | for an assistant message, the tools it called: `[{"id", "type": "function", "function": {"name", "arguments": <JSON text>}}]` |
+| `tool_call_id` | for a tool message, which call it answers |
+| `agent` | in a GEAK run, the agent it belongs to (for example `eng r1_d0:compute`); `null` otherwise |
+| `source_index` | where it is in the raw files: the model call for Qwen Code, the step for mini-swe-agent; `null` for Claude Code |
+| `event` | for `role: event`, what happened |
+| `extra` | anything only one source has: mini-swe-agent's parsed `actions` and `format_error`, a tool message's `is_error`, Claude Code's `timestamp` and `model`, a compaction's `part`, a side call's `system` |
+
+Events: `compaction` (the harness summarized the history; `content` is the summary, `reasoning` the model's
+reasoning; consecutive summarizer calls are parts of one compaction), `message_updated` (the harness added text parts
+in front of an earlier message; `content` is what it added), `side_call` (a harness call that is not the solver, such
+as Qwen Code's memory extraction; it does not enter the conversation), `failed_call` (`content` is the error),
+`history_rewritten` (the next request did not continue the previous one in any known way), and `exit`
+(mini-swe-agent's end; `content` is the exit status). Where the harness compacted its history, the raw calls in
+`raw/` show exactly what the model saw after it.
+
+`python -m phibench_mi210.traces remessage --out DATASET` rebuilds every stored record's messages from the raw files
+inside it in the current shape, for example after the shape changes; it never touches a raw file, and `record.json`
+notes the format and when the messages were rebuilt.
 
 How a compaction looks in Qwen Code's raw calls (Qwen Code 0.28.4): the request's last message is a user message
 that starts "You are the component that summarizes a conversation when its context window is about to overflow",
