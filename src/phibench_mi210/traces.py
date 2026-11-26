@@ -43,6 +43,10 @@ class RecordError(Exception):
     """A run cannot become a record; the message says why and what to fix."""
 
 
+class RecordExists(RecordError):
+    """A record with this id is already stored; records are never overwritten."""
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, 'rb') as fh:
@@ -88,7 +92,7 @@ class RecordBuilder:
     def __init__(self, out: Path, record_id: str):
         self.final = out / 'records' / record_id
         if self.final.exists():
-            raise RecordError(f'{self.final} already exists; records are never overwritten')
+            raise RecordExists(f'{self.final} already exists; records are never overwritten')
         self.stage = out / 'records' / f'.{record_id}.staging'
         if self.stage.exists():
             shutil.rmtree(self.stage)
@@ -155,8 +159,6 @@ def base_record(entry: dict, machine: str) -> dict:
         'notes': entry.get('notes', ''),
     }
 
-
-INDEX_FIELDS = ('record_id', 'source', 'label', 'reward', 'speedup')
 
 
 def _viewer_message(m: dict) -> dict:
@@ -256,19 +258,28 @@ def _out(msg: dict, call: int) -> dict:
 
 
 def is_compaction(request: dict) -> bool:
-    last = request['messages'][-1]
-    return last['role'] == 'user' and _text_of(last.get('content')).startswith(COMPACTION_PROMPT)
+    """A summarizer call of Qwen Code: the instruction is the last user message, or (its second form, seen on
+    2026-11-26 in a secure-agg run) the system message."""
+    msgs = request['messages']
+    last, first = msgs[-1], msgs[0]
+    return ((last['role'] == 'user' and _text_of(last.get('content')).startswith(COMPACTION_PROMPT))
+            or (first['role'] == 'system' and _text_of(first.get('content')).startswith(COMPACTION_PROMPT)))
 
 
 def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
     """The run as one list of messages from its raw model calls, in order (docs/trace-records.md).
 
     A call's request is the conversation so far; only what is new since the previous call is emitted. A compaction
-    call becomes one event line (with the summary and the model's reasoning) and the next call's rewritten history is
-    emitted whole, after its system message. A failed call becomes an event line. Returns (rows, counts)."""
+    call becomes one event line (with the summary and the model's reasoning); consecutive summarizer calls are one
+    compaction in several parts. The next call's rewritten history is emitted whole, after its system message. A call
+    whose system message is not the solver's own (a harness side call, such as Qwen Code's memory extraction) becomes
+    one side_call event and does not touch the conversation. A failed call becomes an event line. Returns (rows,
+    counts)."""
     rows, ctx = [], None
-    counts = {'calls': len(calls), 'failed_calls': 0, 'compactions': 0, 'history_rewrites': 0}
+    counts = {'calls': len(calls), 'failed_calls': 0, 'compactions': 0, 'history_rewrites': 0, 'side_calls': 0}
     system_key = None
+    solver_system = None
+    in_compaction = False
     for i, call in enumerate(calls):
         req, resp = call['request'], call.get('response')
         msgs = req['messages']
@@ -279,11 +290,24 @@ def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
             continue
         message = resp['choices'][0]['message']
         if is_compaction(req):
-            counts['compactions'] += 1
-            rows.append({'role': 'event', 'event': 'compaction', 'summary': message.get('content'),
+            part = 2 if in_compaction else 1
+            if not in_compaction:
+                counts['compactions'] += 1
+            rows.append({'role': 'event', 'event': 'compaction', 'part': part, 'summary': message.get('content'),
                          'reasoning': message.get('reasoning_content'), 'call': i})
+            in_compaction = True
             ctx = None
             continue
+        in_compaction = False
+        if msgs[0]['role'] == 'system':
+            if solver_system is None:
+                solver_system = _key(msgs[0])
+            elif _key(msgs[0]) != solver_system:
+                counts['side_calls'] += 1
+                rows.append({'role': 'event', 'event': 'side_call', 'system': _text_of(msgs[0].get('content'))[:300],
+                             'content': message.get('content'), 'reasoning': message.get('reasoning_content'),
+                             'call': i})
+                continue
         keys = [_key(m) for m in msgs]
         if ctx is not None and keys[:len(ctx)] == ctx:
             new = msgs[len(ctx):]
@@ -364,7 +388,8 @@ def _loop(entry: dict, run: Path, builder: 'RecordBuilder', record: dict) -> Non
     """Submissions from logs/loop/ (absent when the solver never submitted)."""
     loop = run / 'logs' / 'loop'
     if not loop.is_dir():
-        record['outcome']['final_tree'] = 'starting code (no submissions)'
+        # No submission loop ran: the final score measured the tree exactly as the agent left it.
+        record['outcome']['final_tree'] = 'working tree as left (never submitted)'
         return
     for f in sorted(loop.iterdir()):
         if f.name != 'submissions':
@@ -391,8 +416,18 @@ def _loop(entry: dict, run: Path, builder: 'RecordBuilder', record: dict) -> Non
         record['outcome']['termination_reason'] = f.get('termination_reason')
 
 
-def _common_harness(entry: dict, run: Path, builder: 'RecordBuilder', record: dict) -> dict:
-    builder.copy(run / 'prompt.txt', 'prompt.txt')
+def _common_harness(entry: dict, run: Path, builder: 'RecordBuilder', record: dict,
+                    prompt_from: tuple[str, str] | None = None) -> dict:
+    """prompt_from = (text, where it came from), for a harness that keeps the prompt only inside its own log."""
+    if (run / 'prompt.txt').is_file():
+        builder.copy(run / 'prompt.txt', 'prompt.txt')
+        record['prompt_source'] = 'prompt.txt'
+    elif prompt_from is not None:
+        dest = builder.stage / 'prompt.txt'
+        dest.write_text(prompt_from[0])
+        record['prompt_source'] = f'generated from {prompt_from[1]}'
+    else:
+        raise RecordError(f'missing file {run / "prompt.txt"}')
     result = _read_json(run / 'agent_result.json')
     builder.copy(run / 'agent_result.json', 'harness/agent_result.json')
     for name in ('stderr.log', 'sandbox-build.log', 'started', 'finished'):
@@ -467,9 +502,13 @@ def messages_from_mini_swe_agent(traj: dict) -> list[dict]:
 
 def convert_mini_swe_agent(entry: dict, builder: 'RecordBuilder', record: dict) -> None:
     run = Path(entry['run_dir'])
-    result = _common_harness(entry, run, builder, record)
-    record['outcome']['harness_exit_status'] = result.get('exit_status')
     traj = _read_json(run / 'trajectory.json')
+    task_msg = traj['messages'][1] if len(traj.get('messages', [])) > 1 else None
+    if task_msg is None or task_msg.get('role') != 'user':
+        raise RecordError(f'{entry["record_id"]}: trajectory.json messages[1] is not the task prompt')
+    result = _common_harness(entry, run, builder, record,
+                             prompt_from=(task_msg['content'], 'trajectory.json messages[1]'))
+    record['outcome']['harness_exit_status'] = result.get('exit_status')
     builder.copy(run / 'trajectory.json', 'conversation/raw/trajectory.json')
     version = traj.get('info', {}).get('mini_version')
     if entry['agent'].get('version') not in (None, version):
@@ -493,32 +532,52 @@ ADAPTERS = {
 }
 
 
-def convert(sheet: dict, out: Path) -> list[str]:
-    """Convert every run in the sheet; each run is all or nothing. Returns the record ids written."""
+def _convert_one(entry: dict, out: Path, machine: str) -> None:
+    check_sheet_entry(entry)
+    adapter = ADAPTERS.get((entry['source'], entry['agent'].get('harness')))
+    if adapter is None:
+        raise RecordError(f'{entry["record_id"]}: no converter yet for source {entry["source"]} with harness '
+                          f'{entry["agent"].get("harness")!r}; available: {sorted(ADAPTERS)}')
+    builder = RecordBuilder(out, entry['record_id'])
+    try:
+        record = base_record(entry, machine)
+        adapter(entry, builder, record)
+        record['outcome']['label'] = label(record['outcome'].get('reward'), entry.get('invalid_reason'))
+        if entry.get('invalid_reason'):
+            record['outcome']['invalid_reason'] = entry['invalid_reason']
+        builder.commit(record)
+    except BaseException:
+        builder.abort()
+        raise
+
+
+def convert(sheet: dict, out: Path, keep_going: bool = False) -> dict:
+    """Convert every run in the sheet; each run is all or nothing. Without keep_going the first refusal is raised;
+    with it, every run is tried and the result lists what was written, what was already stored (records are never
+    overwritten) and what was refused, with the reason. The index is rebuilt either way."""
     machine = sheet.get('machine')
     if not machine:
         raise RecordError('sheet: "machine" (where the run folders are) is required')
-    written = []
-    for entry in sheet['runs']:
-        check_sheet_entry(entry)
-        adapter = ADAPTERS.get((entry['source'], entry['agent'].get('harness')))
-        if adapter is None:
-            raise RecordError(f'{entry["record_id"]}: no converter yet for source {entry["source"]} with harness '
-                              f'{entry["agent"].get("harness")!r}; available: {sorted(ADAPTERS)}')
-        builder = RecordBuilder(out, entry['record_id'])
-        try:
-            record = base_record(entry, machine)
-            adapter(entry, builder, record)
-            record['outcome']['label'] = label(record['outcome'].get('reward'), entry.get('invalid_reason'))
-            if entry.get('invalid_reason'):
-                record['outcome']['invalid_reason'] = entry['invalid_reason']
-            builder.commit(record)
-        except BaseException:
-            builder.abort()
-            raise
-        written.append(entry['record_id'])
-    rebuild_index(out)
-    return written
+    result = {'written': [], 'already_stored': [], 'refused': []}
+    try:
+        for entry in sheet['runs']:
+            try:
+                _convert_one(entry, out, machine)
+            except RecordExists:
+                if not keep_going:
+                    raise
+                result['already_stored'].append(entry['record_id'])
+                continue
+            except RecordError as e:
+                if not keep_going:
+                    raise
+                result['refused'].append((entry.get('record_id', '?'), str(e)))
+                continue
+            result['written'].append(entry['record_id'])
+    finally:
+        if (out / 'records').is_dir():
+            rebuild_index(out)
+    return result
 
 
 def main(argv=None) -> int:
@@ -533,8 +592,14 @@ def main(argv=None) -> int:
     try:
         if args.cmd == 'convert':
             args.out.mkdir(parents=True, exist_ok=True)
-            done = convert(json.loads(args.sheet.read_text()), args.out)
-            print(f'wrote {len(done)} records: {", ".join(done)}')
+            r = convert(json.loads(args.sheet.read_text()), args.out, keep_going=True)
+            print(f'wrote {len(r["written"])} records: {", ".join(r["written"])}')
+            if r['already_stored']:
+                print(f'already stored, not touched: {", ".join(r["already_stored"])}')
+            for rid, why in r['refused']:
+                print(f'refused {rid}: {why}', file=sys.stderr)
+            if r['refused']:
+                return 2
         else:
             print(f'index: {rebuild_index(args.out)} records')
     except RecordError as e:

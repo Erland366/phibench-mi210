@@ -79,7 +79,7 @@ def fake_adapter(monkeypatch, tmp_path):
 def test_convert_writes_record_and_index(tmp_path, fake_adapter):
     out = tmp_path / 'ds'
     done = traces.convert({'machine': 'm1', 'runs': [entry()]}, out)
-    assert done == ['run-1']
+    assert done == {'written': ['run-1'], 'already_stored': [], 'refused': []}
     rec = json.loads((out / 'records/run-1/record.json').read_text())
     assert rec['outcome']['label'] == 'successful'
     assert {f['path'] for f in rec['provenance']['files']} == {'prompt.txt', 'verifier/reward.json'}

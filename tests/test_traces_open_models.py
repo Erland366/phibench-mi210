@@ -42,7 +42,7 @@ def test_messages_emit_each_message_once():
     assert [r['role'] for r in rows] == ['system', 'user', 'assistant', 'tool', 'assistant']
     assert rows[2]['tool_calls'][0]['id'] == 'c1' and rows[2]['reasoning'] == 'think'
     assert [r['call'] for r in rows] == [0, 0, 0, 1, 1]
-    assert counts == {'calls': 2, 'failed_calls': 0, 'compactions': 0, 'history_rewrites': 0}
+    assert counts == {'calls': 2, 'failed_calls': 0, 'compactions': 0, 'history_rewrites': 0, 'side_calls': 0}
 
 
 def test_compaction_becomes_one_event_and_the_new_history_follows():
@@ -77,6 +77,36 @@ def test_failed_call_is_an_event_and_the_retry_continues():
         ('system', None), ('user', None), ('assistant', None), ('event', 'failed_call'), ('tool', None),
         ('assistant', None)]
     assert counts['failed_calls'] == 1
+
+
+def test_system_form_summarizer_is_part_of_the_same_compaction():
+    a1 = asst('', 'c1')
+    summarize = {'role': 'user', 'content': [{'type': 'text', 'text': traces.COMPACTION_PROMPT}]}
+    sys_summarize = {'role': 'system', 'content': traces.COMPACTION_PROMPT + ' (system form)'}
+    snapshot = {'role': 'user', 'content': [{'type': 'text', 'text': '<state_snapshot>x'}]}
+    calls = [call([SYS, TASK], a1),
+             call([SYS, TASK, resent(a1), tool('c1'), summarize], {'role': 'assistant', 'content': 's1'}),
+             call([sys_summarize, {'role': 'user', 'content': 'summary again'}], {'role': 'assistant', 'content': 's2'}),
+             call([SYS, snapshot], asst('go'))]
+    rows, counts = traces.messages_from_openai_calls(calls)
+    events = [(r['event'], r.get('part')) for r in rows if r['role'] == 'event']
+    assert events == [('compaction', 1), ('compaction', 2)]
+    assert counts['compactions'] == 1 and counts['history_rewrites'] == 0 and counts['side_calls'] == 0
+    assert not any(r['role'] == 'system' and traces.COMPACTION_PROMPT in str(r['content']) for r in rows)
+
+
+def test_side_call_does_not_enter_the_conversation():
+    a1 = asst('', 'c1')
+    side = {'role': 'system', 'content': 'You are now acting as the managed memory extraction subagent.'}
+    calls = [call([SYS, TASK], a1),
+             call([side, {'role': 'user', 'content': 'extract'}], {'role': 'assistant', 'content': 'memories'}),
+             call([SYS, TASK, resent(a1), tool('c1')], asst('done'))]
+    rows, counts = traces.messages_from_openai_calls(calls)
+    assert [(r['role'], r.get('event')) for r in rows] == [
+        ('system', None), ('user', None), ('assistant', None), ('event', 'side_call'), ('tool', None),
+        ('assistant', None)]
+    assert counts['side_calls'] == 1 and counts['history_rewrites'] == 0
+    assert rows[3]['system'].startswith('You are now acting')
 
 
 def test_unexpected_rewrite_is_marked():
@@ -232,9 +262,36 @@ def test_serving_log_is_required(tmp_path, qwen_run):
         traces.convert({'machine': 'm', 'runs': [e]}, tmp_path / 'ds')
 
 
+def test_never_submitted_run_measured_its_working_tree(tmp_path, qwen_run):
+    import shutil
+    shutil.rmtree(qwen_run / 'logs/loop')
+    traces.convert({'machine': 'm', 'runs': [sheet_entry(qwen_run)]}, tmp_path / 'ds')
+    rec = json.loads((tmp_path / 'ds/records' / qwen_run.name / 'record.json').read_text())
+    assert rec['outcome']['final_tree'] == 'working tree as left (never submitted)' and rec['submissions'] == []
+
+
+def test_keep_going_converts_the_rest_and_lists_refusals(tmp_path, qwen_run):
+    good = sheet_entry(qwen_run)
+    bad = sheet_entry(qwen_run, record_id='bad-run', anchor={'ref_speedup': 1.0})
+    out = tmp_path / 'ds'
+    r = traces.convert({'machine': 'm', 'runs': [bad, good]}, out, keep_going=True)
+    assert r['written'] == [qwen_run.name] and r['refused'][0][0] == 'bad-run'
+    assert 'ref_speedup' in r['refused'][0][1]
+    assert not (out / 'records/bad-run').exists() and not list((out / 'records').glob('.*staging'))
+    again = traces.convert({'machine': 'm', 'runs': [good]}, out, keep_going=True)
+    assert again == {'written': [], 'already_stored': [qwen_run.name], 'refused': []}
+
+
+def test_cli_exits_2_when_a_run_is_refused(tmp_path, qwen_run):
+    sheet = tmp_path / 'sheet.json'
+    sheet.write_text(json.dumps({'machine': 'm', 'runs': [sheet_entry(qwen_run, anchor={'ref_speedup': 1.0})]}))
+    assert traces.main(['convert', '--sheet', str(sheet), '--out', str(tmp_path / 'ds')]) == 2
+
+
 def test_mini_swe_agent_run_becomes_a_record(tmp_path, qwen_run):
     run = qwen_run
     (run / 'stream.jsonl').unlink()
+    (run / 'prompt.txt').unlink()
     write(run / 'agent_result.json', {'exit_status': 'RepeatedFormatError', 'model_calls': 56, 'wall_s': 3587})
     write(run / 'trajectory.json', {
         'info': {'mini_version': '2.4.6', 'config': {'model': {'model_name': 'hosted_vllm/qwen3.8-27b'}}},
@@ -248,6 +305,8 @@ def test_mini_swe_agent_run_becomes_a_record(tmp_path, qwen_run):
     d = tmp_path / 'ds/records' / run.name
     rec = json.loads((d / 'record.json').read_text())
     assert rec['outcome']['harness_exit_status'] == 'RepeatedFormatError'
+    assert (d / 'prompt.txt').read_text() == 'task'
+    assert rec['prompt_source'] == 'generated from trajectory.json messages[1]'
     assert rec['model']['served_name'] == 'hosted_vllm/qwen3.8-27b'
     rows = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
     assert rows[2]['reasoning'] == 'r' and rows[2]['actions'] == [{'command': 'ls'}]
