@@ -165,7 +165,8 @@ def _viewer_message(m: dict) -> dict:
     """One message with the same keys and types in every row, so that the Hugging Face viewer can read it."""
     content = m.get('content')
     if m['role'] == 'event':
-        content = m.get('summary') or m.get('error') or m.get('status')
+        content = (m.get('summary') or m.get('error') or m.get('status') or m.get('content')
+                   or (_text_of(m['added_parts']) if m.get('added_parts') else None))
     return {'role': m['role'], 'event': m.get('event'),
             'content': content if isinstance(content, str) or content is None else _text_of(content),
             'reasoning': m.get('reasoning'),
@@ -266,6 +267,27 @@ def is_compaction(request: dict) -> bool:
             or (first['role'] == 'system' and _text_of(first.get('content')).startswith(COMPACTION_PROMPT)))
 
 
+def _prepended_parts(msgs: list[dict], keys: list[tuple], ctx_msgs: list[dict], ctx: list[tuple]):
+    """(index, added parts) when the new request equals the previous context except that one user message got text
+    parts added in front of its old parts (Qwen Code re-attaches its session-start reminders to the summary message
+    on the second call after a compaction); None otherwise."""
+    if len(keys) < len(ctx):
+        return None
+    diff = [j for j in range(len(ctx)) if keys[j] != ctx[j]]
+    if len(diff) != 1:
+        return None
+    j = diff[0]
+    old, new = ctx_msgs[j], msgs[j]
+    if old['role'] != 'user' or new['role'] != 'user':
+        return None
+    old_parts, new_parts = old.get('content'), new.get('content')
+    if not (isinstance(old_parts, list) and isinstance(new_parts, list) and len(new_parts) > len(old_parts)):
+        return None
+    if new_parts[len(new_parts) - len(old_parts):] != old_parts:
+        return None
+    return j, new_parts[:len(new_parts) - len(old_parts)]
+
+
 def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
     """The run as one list of messages from its raw model calls, in order (docs/trace-records.md).
 
@@ -275,7 +297,7 @@ def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
     whose system message is not the solver's own (a harness side call, such as Qwen Code's memory extraction) becomes
     one side_call event and does not touch the conversation. A failed call becomes an event line. Returns (rows,
     counts)."""
-    rows, ctx = [], None
+    rows, ctx, ctx_msgs = [], None, None
     counts = {'calls': len(calls), 'failed_calls': 0, 'compactions': 0, 'history_rewrites': 0, 'side_calls': 0}
     system_key = None
     solver_system = None
@@ -309,7 +331,12 @@ def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
                              'call': i})
                 continue
         keys = [_key(m) for m in msgs]
-        if ctx is not None and keys[:len(ctx)] == ctx:
+        updated = _prepended_parts(msgs, keys, ctx_msgs, ctx) if ctx is not None else None
+        if updated is not None:
+            j, added = updated
+            rows.append({'role': 'event', 'event': 'message_updated', 'index': j, 'added_parts': added, 'call': i})
+            new = msgs[len(ctx):]
+        elif ctx is not None and keys[:len(ctx)] == ctx:
             new = msgs[len(ctx):]
         else:
             if ctx is not None:
@@ -324,6 +351,7 @@ def messages_from_openai_calls(calls: list[dict]) -> tuple[list[dict], dict]:
             rows.append(_out(m, i))
         rows.append(_out(message, i))
         ctx = keys + [_key(message)]
+        ctx_msgs = msgs + [message]
     return rows, counts
 
 

@@ -109,6 +109,25 @@ def test_side_call_does_not_enter_the_conversation():
     assert rows[3]['system'].startswith('You are now acting')
 
 
+def test_reminders_prepended_after_compaction_are_an_update_not_a_rewrite():
+    a1 = asst('', 'c1')
+    summarize = {'role': 'user', 'content': [{'type': 'text', 'text': traces.COMPACTION_PROMPT}]}
+    snap_part = {'type': 'text', 'text': '<state_snapshot>so far'}
+    snapshot = {'role': 'user', 'content': [snap_part]}
+    reminders = [{'type': 'text', 'text': '<system-reminder>skills'}, {'type': 'text', 'text': '<system-reminder>git'}]
+    snapshot_later = {'role': 'user', 'content': reminders + [snap_part]}
+    a2 = asst('', 'c2')
+    calls = [call([SYS, TASK], a1),
+             call([SYS, TASK, resent(a1), tool('c1'), summarize], {'role': 'assistant', 'content': 's'}),
+             call([SYS, snapshot], a2),
+             call([SYS, snapshot_later, resent(a2), tool('c2')], asst('done'))]
+    rows, counts = traces.messages_from_openai_calls(calls)
+    assert counts['history_rewrites'] == 0
+    upd = [r for r in rows if r.get('event') == 'message_updated']
+    assert upd == [{'role': 'event', 'event': 'message_updated', 'index': 1, 'added_parts': reminders, 'call': 3}]
+    assert [r['role'] for r in rows[-2:]] == ['tool', 'assistant']
+
+
 def test_unexpected_rewrite_is_marked():
     calls = [call([SYS, TASK], asst('a')), call([SYS, {'role': 'user', 'content': 'other'}], asst('b'))]
     rows, counts = traces.messages_from_openai_calls(calls)
