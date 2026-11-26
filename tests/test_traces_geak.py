@@ -110,7 +110,11 @@ def test_geak_run_with_its_row_is_successful(tmp_path, geak):
     d, rec = out / 'records/geak-moe-v2', load(out)
     assert rec['outcome']['label'] == 'successful' and rec['outcome']['speedup'] == 1.1306
     assert rec['outcome']['label_rule'].startswith('Round check') and rec['outcome']['reward'] is None
-    assert [a['role'] for a in rec['conversation']['agents']] == ['top-level agent', 'eng r1_d0:compute']
+    chats = rec['conversation']['chats']
+    assert [c['name'] for c in chats] == ['top-level agent', 'eng r1_d0:compute']
+    assert [c['file'] for c in chats] == ['conversation/chats/01-top-level-agent.jsonl',
+                                          'conversation/chats/02-eng-r1-d0-compute.jsonl']
+    assert rec['conversation']['layout'] == 'chats-v1'
     assert rec['conversation']['thinking_dropped'] is False and rec['conversation']['reasoning_included'] is True
     assert rec['conversation']['thinking_blocks'] == 3  # 1 in the top-level agent, 2 in the engineer
     assert rec['conversation']['thinking_blocks_with_text'] == 2
@@ -125,9 +129,10 @@ def test_geak_run_with_its_row_is_successful(tmp_path, geak):
     originals = {p.name: p for p in run_files(geak[0])}
     assert all(f.read_bytes() == originals[f.name].read_bytes() for f in raw)
     assert not any(f.get('changed') for f in rec['provenance']['files'])
-    msgs = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
-    assert {m['agent'] for m in msgs} == {'top-level agent', 'eng r1_d0:compute'}
-    assert 'It looks finished.' in [m['reasoning'] for m in msgs]
+    assert not (d / 'conversation/messages.jsonl').exists() and not (d / 'conversation/agents').exists()
+    eng = [json.loads(l) for l in (d / chats[1]['file']).read_text().splitlines()]
+    assert {m['agent'] for m in eng} == {'eng r1_d0:compute'} and len(eng) == chats[1]['messages']
+    assert eng[-1]['reasoning'] == 'It looks finished.'
 
 
 def run_files(run):
@@ -208,10 +213,9 @@ def test_prompt_is_the_top_level_agents_first_message(tmp_path, geak):
     rec = load(tmp_path / 'ds')
     assert rec['prompt_source'] == "generated from the top-level agent's first user message"
     assert rec['task']['prompt_vs_task'] == 'same problem, other prompt'
-    assert 'one conversation per agent' in rec['conversation']['training_unit']
 
 
-def test_synthetic_agent_stays_in_its_file_but_not_in_messages(tmp_path, geak):
+def test_synthetic_chat_is_kept_and_marked(tmp_path, geak):
     run, rc, prov = geak
     stub = run / 'home/.claude/projects/-proj/sess/subagents/workflows/wf_1/agent-a2.jsonl'
     jl(stub, [{'type': 'user', 'message': {'role': 'user', 'content': 'validate'}},
@@ -223,12 +227,12 @@ def test_synthetic_agent_stays_in_its_file_but_not_in_messages(tmp_path, geak):
                                            '[03-director-validate.md](03-director-validate.md) |\n')
     traces.convert({'machine': 'm', 'runs': [geak_entry(run, rc, prov)]}, tmp_path / 'ds')
     rec = load(tmp_path / 'ds')
-    assert [a['synthetic'] for a in rec['conversation']['agents']] == [False, False, True]
-    assert rec['conversation']['synthetic_agents'] == 1
+    assert [c['synthetic'] for c in rec['conversation']['chats']] == [False, False, True]
+    assert rec['conversation']['synthetic_chats'] == 1
     d = tmp_path / 'ds/records/geak-moe-v2'
-    assert (d / 'conversation/agents/03-director-validate.jsonl').is_file()
-    msgs = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
-    assert 'director:validate' not in {m['agent'] for m in msgs}
+    assert (d / 'conversation/chats/03-director-validate.jsonl').is_file()
+    rows = [json.loads(l) for l in (tmp_path / 'ds/viewer/chats.jsonl').read_text().splitlines()]
+    assert [(r['chat'], r['synthetic']) for r in rows][-1] == ('director:validate', True)
 
 
 def test_geak_entry_must_say_how_its_prompt_relates_to_the_task(tmp_path, geak):

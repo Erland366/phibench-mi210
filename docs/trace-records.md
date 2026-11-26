@@ -70,12 +70,13 @@ unsuccessful, with no row.
 ## Layout
 
 ```
-index.jsonl                      one line per record: record_id, task id, source, model, label, reward, speedup
+index.jsonl                      one line per record: record_id, task id, source, model, label, reward, speedup, chats
+viewer/chats.jsonl               one row per chat with its messages and its run's label, for the Hugging Face viewer
 records/<record_id>/
   record.json                    everything below the files: metadata, outcome, submissions, provenance
   prompt.txt                     the exact prompt the agent got
   conversation/raw/...           the original files, copied byte for byte, never edited
-  conversation/messages.jsonl    the run as one list of messages, generated from raw/ (see below)
+  conversation/chats/<nn>-<name>.jsonl   the chats: one file per conversation, generated from raw/ (see below)
   code/final.patch               the final working tree against the starting code (absent if it was not saved)
   code/final.status.txt          git status of that tree, next to the patch
   code/submissions/<n>/          each submission's diff and its verifier result, if the harness submitted
@@ -91,6 +92,13 @@ records/<record_id>/
                                  kept with its reason in outcome.invalid_scores
 ```
 
+**Where the chat is, for every source (layout `chats-v1`):** `conversation/chats/`, one file per conversation the
+model had, in the order the conversations started, each listed in `record.json` `conversation.chats` with its
+number, name, file, number of messages and whether it is `synthetic`. A run with one agent (an open model's run, a
+person's session) has one chat, `01-solver.jsonl`. A GEAK run has one chat per agent, for example
+`10-verify-r1-d0.jsonl`, because each agent is a separate conversation that never sees the others. One chat file is
+the unit to read and to train on. There is no file that runs several chats together.
+
 For an open-model run, `conversation/raw/` holds the raw model calls (`logs/agent/openai/*.json`), the harness
 stream (`stream.jsonl`), the harness's own chat recording and its home folder files (settings, usage record), or
 `trajectory.json` for mini-swe-agent.
@@ -100,8 +108,6 @@ For a GEAK run the record holds, in place of the open-model files:
 ```
   conversation/raw/claude/...        every agent's Claude Code JSONL, byte copies, thinking included
   conversation/readable/             GEAK's readable copy of each agent's chat (chat/*.md and its index)
-  conversation/agents/<nn>-<role>.jsonl   each agent's messages, in the order the run started them
-  conversation/messages.jsonl        all agents' messages, each line naming its agent
   harness/                           outcome.json, receipt.json, the driver's spec and result, transcript.jsonl
   harness/geak/                      GEAK's own working files: plan, roadmap, insight log, metrics, each engineer's
                                      report, self-reported result and patch, the integration patches and logs
@@ -112,11 +118,10 @@ For a GEAK run the record holds, in place of the open-model files:
   verifier/piece-scores.json         for a piece: the scores the row was accepted on
 ```
 
-`prompt.txt` is the top-level agent's first message (GEAK's own prompt). The unit to train on is one agent's file
-in `conversation/agents/`; `messages.jsonl` lists the agents one after another in the order they started, not as
-one dialogue. An agent whose every reply came from the harness rather than a model (Claude Code names the model
-`<synthetic>`, for example when GEAK stops and closes its remaining steps) keeps its own file, is marked
-`synthetic` in `conversation.agents`, and is left out of `messages.jsonl`.
+`prompt.txt` is the top-level agent's first message (GEAK's own prompt). A GEAK chat's entry in
+`conversation.chats` also gives when the agent started, its models, its readable copy and its raw file. A chat whose
+every reply came from the harness rather than a model (Claude Code names the model `<synthetic>`, for example when
+GEAK stops and closes its remaining steps) is kept and marked `synthetic: true`; leave it out before training.
 
 Workspaces, baselines and profiler output stay in the run folder, which `provenance.run_dir` names. Each engineer
 attempt is listed under `submissions` with GEAK's own reported speedup, marked as self-reported; it never sets the
@@ -142,7 +147,7 @@ what the final score measured.
 | `time` | started, finished, wall-clock limit |
 | `outcome` | `label` (`successful`, `unsuccessful`, `invalid` or `unscored`), `reward`, `speedup`, `correctness_ok`, `hard_fail_reasons`, `invalid_reason`, the harness exit code, whether the final tree was the winning submission or the starting code, the path of the counted verifier output, and `invalid_scores` (thrown-away scores with their reasons) |
 | `submissions` | per submission: number, speedup, reward, correctness, hard-fail reasons, diff path, and `timing_clean` (false when the machine was shared during that timing, with the reason) |
-| `conversation` | which raw files are the main copy, whether reasoning is included, whether thinking was dropped (never, since 2026-11-26), for Claude traces the number of thinking blocks and how many hold text, number of compactions |
+| `conversation` | `layout` (`chats-v1`) and `chats` (every chat: `n`, `name`, `file`, `messages`, `synthetic`), which raw files are the main copy, whether reasoning is included, whether thinking was dropped (never, since 2026-11-26), for Claude traces the number of thinking blocks and how many hold text, number of compactions |
 | `provenance` | machine, original paths, date copied, SHA-256 of every copied file |
 | `scrub` | whether the scrub check passed, by whom, when, and anything it changed |
 
@@ -150,11 +155,11 @@ The label follows ADR 0008: `successful` when the final reward is above 0, `unsu
 when the run was not a fair attempt, `unscored` until the task's verifier has scored it. The agent's own report
 never sets it.
 
-## `messages.jsonl`
+## A chat file
 
-Every record has the conversation in one shape (`messages-v1`), whatever the source: a person's Claude Code or
-Codex session, a GEAK run, or an open model's run. The raw files next to it stay in each tool's own format. Each line
-is one message with exactly these fields, in this order:
+Every chat file has the same message shape (`messages-v1`), whatever the source: a person's Claude Code or Codex
+session, a GEAK run, or an open model's run. The raw files next to it stay in each tool's own format. Each line is one
+message with exactly these fields, in this order:
 
 | Field | Holds |
 |---|---|
@@ -164,7 +169,7 @@ is one message with exactly these fields, in this order:
 | `reasoning` | the model's own reasoning: an open model's reasoning, or the text of Claude's thinking blocks; `null` when there is none. Claude Code can store a thinking block with an empty text and only a signature, as in every block of our GEAK runs, so their `reasoning` is `null` although the blocks are kept in the raw files |
 | `tool_calls` | for an assistant message, the tools it called: `[{"id", "type": "function", "function": {"name", "arguments": <JSON text>}}]` |
 | `tool_call_id` | for a tool message, which call it answers |
-| `agent` | in a GEAK run, the agent it belongs to (for example `eng r1_d0:compute`); `null` otherwise |
+| `agent` | the name of the chat it belongs to: `solver` for a run with one agent, the GEAK agent (for example `eng r1_d0:compute`) otherwise |
 | `source_index` | where it is in the raw files: the model call for Qwen Code, the step for mini-swe-agent; `null` for Claude Code |
 | `event` | for `role: event`, what happened |
 | `extra` | anything only one source has: mini-swe-agent's parsed `actions` and `format_error`, a tool message's `is_error`, Claude Code's `timestamp` and `model`, a compaction's `part`, a side call's `system` |
@@ -177,16 +182,17 @@ as Qwen Code's memory extraction; it does not enter the conversation), `failed_c
 (mini-swe-agent's end; `content` is the exit status). Where the harness compacted its history, the raw calls in
 `raw/` show exactly what the model saw after it.
 
-`python -m phibench_mi210.traces remessage --out DATASET` rebuilds every stored record's messages from the raw files
-inside it in the current shape, for example after the shape changes; it never touches a raw file, and `record.json`
-notes the format and when the messages were rebuilt.
+`python -m phibench_mi210.traces remessage --out DATASET` rebuilds every stored record's chats from the raw files
+inside it in the current shape and layout, for example after either changes; it never touches a raw file, removes
+the generated files of the earlier layout (`conversation/messages.jsonl` and `conversation/agents/`, before
+2026-11-26), and `record.json` notes the format, the layout and when the chats were rebuilt.
 
 How a compaction looks in Qwen Code's raw calls (Qwen Code 0.28.4): the request's last message is a user message
 that starts "You are the component that summarizes a conversation when its context window is about to overflow",
 sent with `max_tokens` 20000. The response's `content` is the summary and `reasoning_content` the model's reasoning.
 The next call restarts from a short history: the system message, the summary fed back as a user `<state_snapshot>`
 message, a short assistant acknowledgement, and a user message listing the files read before. The compaction call
-itself is an event in `messages.jsonl`, not a turn of the task.
+itself is an event in the chat, not a turn of the task.
 
 ## Secrets and paths
 

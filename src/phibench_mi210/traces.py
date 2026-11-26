@@ -167,7 +167,7 @@ MESSAGE_FIELDS = ('turn', 'role', 'content', 'reasoning', 'tool_calls', 'tool_ca
 
 
 def unify(rows: list[dict]) -> list[dict]:
-    """One message shape for every source (docs/trace-records.md, "messages.jsonl"): the same fields on every line,
+    """One message shape for every source (docs/trace-records.md, "A chat file"): the same fields on every line,
     content always plain text, tool calls in the OpenAI function shape, and whatever only one source has under
     extra. Running it on rows already in this shape changes nothing."""
     out = []
@@ -202,6 +202,22 @@ def unify(rows: list[dict]) -> list[dict]:
     return out
 
 
+CHATS_DIR = 'conversation/chats'
+CHATS_LAYOUT = 'chats-v1'  # every record: one file per conversation in conversation/chats/, for every source
+SOLVER = 'solver'  # the name of the one chat of a run with a single agent (an open-model run, a person's session)
+
+
+def chat_file(n: int, name: str) -> str:
+    slug = re.sub(r'[^A-Za-z0-9]+', '-', name).strip('-').lower()
+    return f'{CHATS_DIR}/{n:02d}-{slug}.jsonl'
+
+
+def solver_chat(rows: list[dict]) -> tuple[dict, list[dict]]:
+    """The one chat of a single-agent run: its entry for record.json and its unified messages."""
+    msgs = unify([{**r, 'agent': SOLVER} for r in rows])
+    return {'n': 1, 'name': SOLVER, 'file': chat_file(1, SOLVER), 'messages': len(msgs), 'synthetic': False}, msgs
+
+
 def _viewer_message(m: dict) -> dict:
     """A unified message with its tool calls as one JSON string, so that the Hugging Face viewer reads every row."""
     v = {k: m.get(k) for k in MESSAGE_FIELDS if k != 'extra'}
@@ -212,7 +228,7 @@ def _viewer_message(m: dict) -> dict:
 DATASET_CARD = """---
 configs:
 - config_name: runs
-  data_files: viewer/runs.jsonl
+  data_files: viewer/chats.jsonl
   default: true
 - config_name: index
   data_files: index.jsonl
@@ -222,43 +238,46 @@ configs:
 One record per run of an agent on a Φ-Bench task, labeled by the task's own verifier: successful (final reward
 above 0), unsuccessful (reward 0), invalid (not a fair attempt) or unscored. Private to the group.
 
-- `viewer/runs.jsonl`: one row per run with its whole conversation, for reading in the viewer (generated).
+- `viewer/chats.jsonl`: one row per chat (conversation) with its messages and its run's label, for reading in the
+  viewer (generated).
 - `index.jsonl`: one line per record (generated).
-- `records/<record_id>/`: the record itself: `record.json`, the prompt, the raw files byte for byte, the generated
-  `messages.jsonl`, the code and the verifier output.
+- `records/<record_id>/`: the record itself: `record.json`, the prompt, the raw files byte for byte, the chats in
+  `conversation/chats/` (one file per conversation, the same for every source), the code and the verifier output.
 
 Format and decisions: `docs/trace-records.md`, `CONTEXT.md` and `docs/adr/` in the phibench-mi210 repository.
 """
 
 
 def rebuild_index(out: Path) -> int:
-    """index.jsonl and viewer/runs.jsonl from every record; rebuilt whole so that they can never disagree with the
-    records. Writes the dataset card if there is none."""
-    rows, runs = [], []
+    """index.jsonl and viewer/chats.jsonl from every record; rebuilt whole so that they can never disagree with the
+    records. Writes the dataset card."""
+    rows, chats = [], []
     for rec_path in sorted((out / 'records').glob('*/record.json')):
         r = json.loads(rec_path.read_text())
+        conv = r['conversation']
+        if 'chats' not in conv:
+            raise RecordError(f'{rec_path}: no conversation.chats; run "remessage" to bring it to {CHATS_LAYOUT}')
         row = {'record_id': r['record_id'], 'task': r['task']['id'], 'source': r['source'],
                'model': r['model'].get('name'), 'label': r['outcome'].get('label'),
                'reward': r['outcome'].get('reward'), 'speedup': r['outcome'].get('speedup'),
-               'prompt_vs_task': r['task'].get('prompt_vs_task')}
+               'prompt_vs_task': r['task'].get('prompt_vs_task'), 'chats': len(conv['chats'])}
         rows.append(row)
-        msgs_path = rec_path.parent / 'conversation' / 'messages.jsonl'
-        msgs = [json.loads(l) for l in msgs_path.read_text().splitlines() if l.strip()] if msgs_path.is_file() else []
-        msgs = unify(msgs)
-        runs.append({**row, 'label_rule': r['outcome'].get('label_rule'), 'ref_speedup': r['outcome'].get('ref_speedup'),
-                     'harness': r['agent'].get('harness'), 'harness_version': r['agent'].get('version'),
-                     'invalid_reason': r['outcome'].get('invalid_reason'),
-                     'final_tree': r['outcome'].get('final_tree'), 'submissions': len(r['submissions']),
-                     'compactions': r['conversation'].get('compactions'), 'messages': [_viewer_message(m) for m in msgs]})
+        for c in conv['chats']:
+            p = rec_path.parent / c['file']
+            msgs = unify([json.loads(l) for l in p.read_text().splitlines() if l.strip()])
+            chats.append({**row, 'chat': c['name'], 'chat_n': c['n'], 'synthetic': c['synthetic'],
+                          'label_rule': r['outcome'].get('label_rule'), 'harness': r['agent'].get('harness'),
+                          'harness_version': r['agent'].get('version'),
+                          'invalid_reason': r['outcome'].get('invalid_reason'),
+                          'messages': [_viewer_message(m) for m in msgs]})
     with open(out / 'index.jsonl', 'w') as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + '\n')
     (out / 'viewer').mkdir(exist_ok=True)
-    with open(out / 'viewer' / 'runs.jsonl', 'w') as fh:
-        for run in runs:
-            fh.write(json.dumps(run, ensure_ascii=False) + '\n')
-    if not (out / 'README.md').exists():
-        (out / 'README.md').write_text(DATASET_CARD)
+    with open(out / 'viewer' / 'chats.jsonl', 'w') as fh:
+        for c in chats:
+            fh.write(json.dumps(c, ensure_ascii=False) + '\n')
+    (out / 'README.md').write_text(DATASET_CARD)
     return len(rows)
 
 
@@ -540,8 +559,10 @@ def convert_qwen_code(entry: dict, builder: 'RecordBuilder', record: dict) -> No
     record['model']['served_name'] = init.get('model')
     calls = [json.loads(f.read_text()) for f in files]
     rows, counts = messages_from_openai_calls(calls)
-    builder.write_jsonl('conversation/messages.jsonl', unify(rows))
-    record['conversation'] = {'main': 'conversation/raw/openai', 'harness_log': 'conversation/raw/stream.jsonl',
+    chat, msgs = solver_chat(rows)
+    builder.write_jsonl(chat['file'], msgs)
+    record['conversation'] = {'layout': CHATS_LAYOUT, 'chats': [chat], 'main': 'conversation/raw/openai',
+                              'harness_log': 'conversation/raw/stream.jsonl',
                               'reasoning_included': True, 'thinking_dropped': False, **counts}
     _loop(entry, run, builder, record)
     _final_score(entry, run, builder, record)
@@ -596,9 +617,10 @@ def convert_mini_swe_agent(entry: dict, builder: 'RecordBuilder', record: dict) 
     record['agent']['version'] = version
     record['model']['served_name'] = traj.get('info', {}).get('config', {}).get('model', {}).get('model_name')
     rows = messages_from_mini_swe_agent(traj)
-    builder.write_jsonl('conversation/messages.jsonl', unify(rows))
-    record['conversation'] = {'main': 'conversation/raw/trajectory.json', 'reasoning_included': True,
-                              'thinking_dropped': False, 'compactions': 0,
+    chat, msgs = solver_chat(rows)
+    builder.write_jsonl(chat['file'], msgs)
+    record['conversation'] = {'layout': CHATS_LAYOUT, 'chats': [chat], 'main': 'conversation/raw/trajectory.json',
+                              'reasoning_included': True, 'thinking_dropped': False, 'compactions': 0,
                               'steps': sum(1 for r in rows if r['role'] == 'assistant')}
     _loop(entry, run, builder, record)
     _final_score(entry, run, builder, record)
@@ -788,26 +810,23 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
         for k, v in count_thinking(f).items():
             thinking[k] += v
     _optional(builder, run / 'chat', 'conversation/readable')
-    agents, all_rows = [], []
+    chats = []
     for a in geak_agents(run):
         src = Path(a['source'])
         if not src.is_file():
             raise RecordError(f'{entry["record_id"]}: agent {a["n"]} ({a["role"]}) conversation {src} is missing')
         rows = messages_from_claude_code(src)
-        slug = re.sub(r'[^A-Za-z0-9]+', '-', a['role']).strip('-').lower()
-        rel = f'conversation/agents/{a["n"]:02d}-{slug}.jsonl'
+        rel = chat_file(a['n'], a['role'])
         builder.write_jsonl(rel, unify([{**r, 'agent': a['role']} for r in rows]))
         raw_rel = (f'conversation/raw/claude/{src.relative_to(claude_root).as_posix()}'
                    if claude_root in src.parents else None)
-        # An agent whose every reply came from the harness, not a model (Claude Code writes such replies with model
-        # "<synthetic>", for example when GEAK stops and closes its remaining steps), is kept in its own file but
-        # left out of messages.jsonl.
+        # A chat whose every reply came from the harness, not a model (Claude Code writes such replies with model
+        # "<synthetic>", for example when GEAK stops and closes its remaining steps), is kept and marked.
         models = {r.get('model') for r in rows if r['role'] == 'assistant'}
         synthetic = bool(models) and models <= {SYNTHETIC_MODEL}
-        agents.append({**a, 'raw': raw_rel, 'messages_file': rel, 'messages': len(rows), 'synthetic': synthetic})
-        if not synthetic:
-            all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
-    builder.write_jsonl('conversation/messages.jsonl', unify(all_rows))
+        chats.append({'n': a['n'], 'name': a['role'], 'file': rel, 'messages': len(rows), 'synthetic': synthetic,
+                      'started': a['started'], 'models': a['models'], 'readable': f'conversation/readable/{a["chat_file"]}',
+                      'raw': raw_rel, 'source': a['source']})
     first_user = next((r['content'] for r in messages_from_claude_code(Path(geak_agents(run)[0]['source']))
                        if r['role'] == 'user'), None)
     if not first_user:
@@ -815,10 +834,8 @@ def convert_geak_run(entry: dict, builder: 'RecordBuilder', record: dict) -> Non
     (builder.stage / 'prompt.txt').write_text(first_user)
     record['prompt_source'] = "generated from the top-level agent's first user message"
     record['conversation'] = {
-        'main': 'conversation/raw/claude', 'readable': 'conversation/readable', 'agents': agents,
-        'training_unit': 'conversation/agents/<nn>-<role>.jsonl, one conversation per agent; messages.jsonl lists '
-                         'the non-synthetic agents one after another in the order they started, not as one dialogue',
-        'synthetic_agents': sum(a['synthetic'] for a in agents),
+        'layout': CHATS_LAYOUT, 'chats': chats, 'main': 'conversation/raw/claude', 'readable': 'conversation/readable',
+        'synthetic_chats': sum(c['synthetic'] for c in chats),
         'reasoning_included': True, 'thinking_dropped': False, **thinking}
     record['model']['transcript_models'] = outcome.get('transcript_models')
     record['outcome']['harness_status'] = outcome.get('status')
@@ -902,6 +919,10 @@ def _convert_one(entry: dict, out: Path, machine: str) -> None:
         record = base_record(entry, machine)
         record['task']['prompt_vs_task'] = pvt
         adapter(entry, builder, record)
+        chats = (record.get('conversation') or {}).get('chats')
+        if not chats or not all((builder.stage / c['file']).is_file() for c in chats):
+            raise RecordError(f'{entry["record_id"]}: the reader wrote no chats; every record keeps its '
+                              f'conversations in {CHATS_DIR}/ ({CHATS_LAYOUT})')
         # A reader that labels by its own rule (GEAK: the Round check) sets the label itself; otherwise the task's
         # verifier reward decides. An invalid reason always wins.
         preset = record['outcome'].get('label')
@@ -946,56 +967,73 @@ def convert(sheet: dict, out: Path, keep_going: bool = False) -> dict:
     return result
 
 
-def messages_of_record(d: Path, rec: dict) -> tuple[list[dict], dict]:
-    """A stored record's messages rebuilt from the raw files inside it (no run folder needed): (all messages,
-    {per-agent file: messages} for a GEAK run)."""
-    raw = d / 'conversation' / 'raw'
+def chats_of_record(d: Path, rec: dict) -> list[tuple[dict, list[dict]]]:
+    """A stored record's chats rebuilt from the raw files inside it (no run folder needed): (entry, messages) for
+    each chat. Reads both the current layout and the earlier one (messages.jsonl, and agents for a GEAK run)."""
+    raw, conv = d / 'conversation' / 'raw', rec['conversation']
     if rec['source'] == 'open_model_run' and rec['agent'].get('harness') == 'qwen-code':
         files = sorted((raw / 'openai').glob('openai-*.json'))
         if not files:
             raise RecordError(f'{d}: no raw model calls in {raw / "openai"}')
         rows, _ = messages_from_openai_calls([json.loads(f.read_text()) for f in files])
-        return unify(rows), {}
+        return [solver_chat(rows)]
     if rec['source'] == 'open_model_run' and rec['agent'].get('harness') == 'mini-swe-agent':
-        return unify(messages_from_mini_swe_agent(_read_json(raw / 'trajectory.json'))), {}
+        return [solver_chat(messages_from_mini_swe_agent(_read_json(raw / 'trajectory.json')))]
     if rec['source'] == 'geak_run':
-        all_rows, per_agent = [], {}
-        for a in rec['conversation']['agents']:
-            if not a.get('raw'):
-                raise RecordError(f'{d}: agent {a["n"]} has no raw file inside the record')
-            rows = messages_from_claude_code(d / a['raw'])
-            per_agent[a['messages_file']] = unify([{**r, 'agent': a['role']} for r in rows])
-            if not a.get('synthetic'):
-                all_rows += [{**r, 'agent': a['role'], 'agent_n': a['n']} for r in rows]
-        return unify(all_rows), per_agent
+        out = []
+        for c in conv.get('chats') or conv['agents']:
+            name = c.get('name') or c['role']
+            if not c.get('raw'):
+                raise RecordError(f'{d}: chat {c["n"]} has no raw file inside the record')
+            rows = messages_from_claude_code(d / c['raw'])
+            entry = {'n': c['n'], 'name': name, 'file': chat_file(c['n'], name), 'messages': len(rows),
+                     'synthetic': c['synthetic'], 'started': c.get('started'), 'models': c.get('models'),
+                     'readable': c.get('readable') or f'conversation/readable/{c["chat_file"]}',
+                     'raw': c['raw'], 'source': c.get('source')}
+            out.append((entry, unify([{**r, 'agent': name} for r in rows])))
+        return out
     raise RecordError(f'{d}: no message reader for source {rec["source"]} with harness {rec["agent"].get("harness")}')
 
 
+EARLIER_GENERATED = ('conversation/messages.jsonl', 'conversation/agents/')  # generated files of the earlier layout
+
+
 def remessage(out: Path) -> list[str]:
-    """Rebuild conversation/messages.jsonl (and a GEAK run's per-agent files) of every stored record from the raw
-    files inside it, in the current message format. Raw files are never touched; record.json notes the format and
-    when the messages were rebuilt."""
+    """Rebuild every stored record's chats (conversation/chats/) from the raw files inside it, in the current message
+    format and layout. Raw files are never touched; generated files of the earlier layout (messages.jsonl, agents/)
+    are removed; record.json notes the format, the layout and when the chats were rebuilt."""
     done = []
     for rec_path in sorted((out / 'records').glob('*/record.json')):
         d, rec = rec_path.parent, json.loads(rec_path.read_text())
-        rows, per_agent = messages_of_record(d, rec)
-        tmp = d / 'conversation' / '.messages.jsonl.new'
-        with open(tmp, 'w') as fh:
-            for row in rows:
-                fh.write(json.dumps(row, ensure_ascii=False) + '\n')
-        for rel, agent_rows in per_agent.items():
-            with open(d / rel, 'w') as fh:
-                for row in agent_rows:
+        chats = chats_of_record(d, rec)
+        new_dir = d / 'conversation' / '.chats.new'
+        if new_dir.exists():
+            shutil.rmtree(new_dir)
+        new_dir.mkdir()
+        for entry, msgs in chats:
+            with open(new_dir / Path(entry['file']).name, 'w') as fh:
+                for row in msgs:
                     fh.write(json.dumps(row, ensure_ascii=False) + '\n')
-        tmp.replace(d / 'conversation' / 'messages.jsonl')
+        old = d / CHATS_DIR
+        if old.exists():
+            shutil.rmtree(old)
+        new_dir.rename(old)
+        for rel in EARLIER_GENERATED:
+            p = d / rel
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.is_file():
+                p.unlink()
+        conv = rec['conversation']
+        for k in ('agents', 'training_unit', 'synthetic_agents'):
+            conv.pop(k, None)
+        conv['layout'], conv['chats'] = CHATS_LAYOUT, [e for e, _ in chats]
+        if rec['source'] == 'geak_run':
+            conv['synthetic_chats'] = sum(e['synthetic'] for e, _ in chats)
         if rec['source'] == 'open_model_run' and 'prompt_vs_task' not in rec['task']:
             rec['task']['prompt_vs_task'] = 'instruction'  # an open model is given the task's own instruction
-        rec['conversation']['messages_format'] = MESSAGES_FORMAT
-        rec['conversation']['messages_rebuilt_at'] = dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
-        for f in rec['provenance']['files']:
-            p = d / f['path']
-            if f['path'] == 'conversation/messages.jsonl' or f['path'] in per_agent:
-                f.update(sha256=sha256(p), bytes=p.stat().st_size)
+        conv['messages_format'] = MESSAGES_FORMAT
+        conv['messages_rebuilt_at'] = dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
         rec_path.write_text(json.dumps(rec, indent=1, ensure_ascii=False) + '\n')
         done.append(rec['record_id'])
     rebuild_index(out)
@@ -1016,7 +1054,7 @@ def main(argv=None) -> int:
     try:
         if args.cmd == 'remessage':
             done = remessage(args.out)
-            print(f'rebuilt the messages of {len(done)} records ({MESSAGES_FORMAT})')
+            print(f'rebuilt the chats of {len(done)} records ({CHATS_LAYOUT}, {MESSAGES_FORMAT})')
             return 0
         if args.cmd == 'convert':
             args.out.mkdir(parents=True, exist_ok=True)

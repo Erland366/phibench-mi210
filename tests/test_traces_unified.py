@@ -26,29 +26,54 @@ def test_unify_gives_every_source_the_same_fields():
     assert traces.unify(out) == out  # already unified: unchanged
 
 
-def test_qwen_and_geak_records_share_one_shape(tmp_path, qwen_run, geak):
+CHAT_KEYS = {'n', 'name', 'file', 'messages', 'synthetic'}
+
+
+def test_qwen_and_geak_records_share_one_layout_and_shape(tmp_path, qwen_run, geak):
     out = tmp_path / 'ds'
     traces.convert({'machine': 'm', 'runs': [sheet_entry(qwen_run), geak_entry(*geak)]}, out)
     shapes = set()
     for rid in (qwen_run.name, 'geak-moe-v2'):
-        rec = json.loads((out / 'records' / rid / 'record.json').read_text())
-        assert rec['conversation']['messages_format'] == traces.MESSAGES_FORMAT
-        for line in (out / 'records' / rid / 'conversation/messages.jsonl').read_text().splitlines():
-            shapes.add(tuple(json.loads(line)))
+        d = out / 'records' / rid
+        rec = json.loads((d / 'record.json').read_text())
+        conv = rec['conversation']
+        assert conv['messages_format'] == traces.MESSAGES_FORMAT and conv['layout'] == traces.CHATS_LAYOUT
+        assert all(CHAT_KEYS <= set(c) for c in conv['chats'])
+        # the chat is in the same place for every source: one file per chat in conversation/chats/
+        assert sorted(p.relative_to(d).as_posix() for p in (d / 'conversation/chats').iterdir()) == \
+            sorted(c['file'] for c in conv['chats'])
+        assert not (d / 'conversation/messages.jsonl').exists() and not (d / 'conversation/agents').exists()
+        for c in conv['chats']:
+            for line in (d / c['file']).read_text().splitlines():
+                shapes.add(tuple(json.loads(line)))
     assert shapes == {traces.MESSAGE_FIELDS}
 
 
-def test_remessage_rebuilds_from_the_raw_files_and_matches_a_fresh_conversion(tmp_path, qwen_run, geak):
+def test_remessage_moves_old_records_to_the_chats_layout(tmp_path, qwen_run, geak):
     out = tmp_path / 'ds'
     traces.convert({'machine': 'm', 'runs': [sheet_entry(qwen_run), geak_entry(*geak)]}, out)
-    before = {p: p.read_text() for p in out.glob('records/*/conversation/**/*.jsonl') if 'raw' not in p.parts}
+    before = {p: p.read_text() for p in out.glob('records/*/conversation/chats/*.jsonl')}
     raw_before = {p: p.read_bytes() for p in out.glob('records/*/conversation/raw/**/*') if p.is_file()}
-    # an old-format messages file, as the first upload had
-    old = out / 'records' / qwen_run.name / 'conversation/messages.jsonl'
-    old.write_text('{"role": "system", "content": "old", "call": 0}\n')
+    # turn both records back into the earlier layout, as stored before chats-v1
+    q, g = out / 'records' / qwen_run.name, out / 'records/geak-moe-v2'
+    (q / 'conversation/chats/01-solver.jsonl').rename(q / 'conversation/messages.jsonl')
+    (q / 'conversation/chats').rmdir()
+    rq = json.loads((q / 'record.json').read_text())
+    del rq['conversation']['chats'], rq['conversation']['layout']
+    (q / 'record.json').write_text(json.dumps(rq))
+    (g / 'conversation/chats').rename(g / 'conversation/agents')
+    (g / 'conversation/messages.jsonl').write_text('{"role": "user", "content": "all agents run together"}\n')
+    rg = json.loads((g / 'record.json').read_text())
+    rg['conversation']['agents'] = [{**{k: v for k, v in c.items() if k != 'name'}, 'role': c['name'],
+                                     'messages_file': c['file'].replace('chats', 'agents')}
+                                    for c in rg['conversation'].pop('chats')]
+    rg['conversation']['training_unit'] = 'old'
+    (g / 'record.json').write_text(json.dumps(rg))
     assert sorted(traces.remessage(out)) == sorted([qwen_run.name, 'geak-moe-v2'])
-    after = {p: p.read_text() for p in before}
-    assert after == before  # same as a fresh conversion
+    assert {p: p.read_text() for p in before} == before  # same chats as a fresh conversion
     assert {p: p.read_bytes() for p in raw_before} == raw_before  # raw files untouched
-    rec = json.loads((out / 'records' / qwen_run.name / 'record.json').read_text())
-    assert 'messages_rebuilt_at' in rec['conversation']
+    for d in (q, g):
+        assert not (d / 'conversation/messages.jsonl').exists() and not (d / 'conversation/agents').exists()
+        conv = json.loads((d / 'record.json').read_text())['conversation']
+        assert conv['layout'] == traces.CHATS_LAYOUT and 'agents' not in conv and 'training_unit' not in conv
+        assert 'messages_rebuilt_at' in conv

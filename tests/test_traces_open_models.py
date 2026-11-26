@@ -204,15 +204,19 @@ def test_qwen_code_run_becomes_a_record(tmp_path, qwen_run):
                 'serving/serve-qwen-x-20261125T2127.log', 'conversation/raw/stream.jsonl'):
         assert (d / rel).is_file(), rel
     assert len(list((d / 'conversation/raw/openai').iterdir())) == 2
-    rows = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
+    assert rec['conversation']['chats'] == [{'n': 1, 'name': 'solver', 'file': 'conversation/chats/01-solver.jsonl',
+                                             'messages': 5, 'synthetic': False}]
+    rows = [json.loads(l) for l in (d / 'conversation/chats/01-solver.jsonl').read_text().splitlines()]
     assert [r['role'] for r in rows] == ['system', 'user', 'assistant', 'tool', 'assistant']
+    assert {r['agent'] for r in rows} == {'solver'}
+    assert not (d / 'conversation/messages.jsonl').exists()
 
 
 def test_viewer_rows_have_one_shape(tmp_path, qwen_run):
     out = tmp_path / 'ds'
     traces.convert({'machine': 'm', 'runs': [sheet_entry(qwen_run)]}, out)
-    runs = [json.loads(l) for l in (out / 'viewer/runs.jsonl').read_text().splitlines()]
-    assert len(runs) == 1 and runs[0]['label'] == 'successful' and runs[0]['submissions'] == 2
+    runs = [json.loads(l) for l in (out / 'viewer/chats.jsonl').read_text().splitlines()]
+    assert len(runs) == 1 and runs[0]['label'] == 'successful' and runs[0]['chat'] == 'solver'
     msgs = runs[0]['messages']
     assert {tuple(m) for m in msgs} == {tuple(k for k in traces.MESSAGE_FIELDS if k != 'extra')}
     assert all(m['content'] is None or isinstance(m['content'], str) for m in msgs)
@@ -342,7 +346,7 @@ def test_mini_swe_agent_run_becomes_a_record(tmp_path, qwen_run):
     assert (d / 'prompt.txt').read_text() == 'task'
     assert rec['prompt_source'] == 'generated from trajectory.json messages[1]'
     assert rec['model']['served_name'] == 'hosted_vllm/qwen3.8-27b'
-    rows = [json.loads(l) for l in (d / 'conversation/messages.jsonl').read_text().splitlines()]
+    rows = [json.loads(l) for l in (d / 'conversation/chats/01-solver.jsonl').read_text().splitlines()]
     assert rows[2]['reasoning'] == 'r' and rows[2]['extra']['actions'] == [{'command': 'ls'}]
     assert rows[-1]['role'] == 'event' and rows[-1]['event'] == 'exit'
     assert rows[-1]['content'] == 'RepeatedFormatError' and rows[-1]['source_index'] == 4

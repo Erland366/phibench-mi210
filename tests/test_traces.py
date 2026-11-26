@@ -71,9 +71,19 @@ def fake_adapter(monkeypatch, tmp_path):
         builder.copy(run / 'reward.json', 'verifier/reward.json')
         r = json.loads((run / 'reward.json').read_text())
         record['outcome'].update(reward=r['reward'], speedup=r['speedup'])
+        chat, msgs = traces.solver_chat([{'role': 'user', 'content': 'do it'}])
+        builder.write_jsonl(chat['file'], msgs)
+        record['conversation'] = {'layout': traces.CHATS_LAYOUT, 'chats': [chat]}
 
     monkeypatch.setitem(traces.ADAPTERS, ('open_model_run', 'fake'), adapter)
     return run
+
+
+def test_reader_without_chats_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setitem(traces.ADAPTERS, ('open_model_run', 'fake'), lambda e, b, r: None)
+    with pytest.raises(traces.RecordError, match='wrote no chats'):
+        traces.convert({'machine': 'm', 'runs': [entry()]}, tmp_path / 'ds')
+    assert not (tmp_path / 'ds/records/run-1').exists()
 
 
 def test_convert_writes_record_and_index(tmp_path, fake_adapter):
@@ -87,7 +97,7 @@ def test_convert_writes_record_and_index(tmp_path, fake_adapter):
     assert (out / 'records/run-1/prompt.txt').read_text() == 'do it'
     index = [json.loads(l) for l in (out / 'index.jsonl').read_text().splitlines()]
     assert index == [{'record_id': 'run-1', 'task': 'lh/x', 'source': 'open_model_run', 'model': 'm',
-                      'label': 'successful', 'reward': 0.25, 'speedup': 3.0, 'prompt_vs_task': 'instruction'}]
+                      'label': 'successful', 'reward': 0.25, 'speedup': 3.0, 'prompt_vs_task': 'instruction', 'chats': 1}]
 
 
 def test_invalid_reason_wins_over_reward(tmp_path, fake_adapter):
