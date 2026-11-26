@@ -54,10 +54,16 @@ make several submissions, which are kept inside it.
 _Avoid_: trial (fine in speech, but write run), episode, rollout
 
 **Outcome**:
-The label of one run, from the task's own verifier by Φ-Bench's definition: **successful** when the final reward is
-above 0 (a speed task beats the anchor, a pass/fail task passes its tests), **unsuccessful** when it is 0, and
-**invalid** when the run was not a fair attempt (setup error, a busy machine during timing, the agent never
-started). A run the verifier has not scored yet is **unscored**, a waiting state, not a label.
+The label of one run: **successful**, **unsuccessful** or **invalid** (not a fair attempt: setup error, a busy
+machine during timing, the agent never started); **unscored** is a waiting state, not a label. A run given an
+existing task is labeled by that task's verifier with Φ-Bench's definition (successful when the final reward is
+above 0). A GEAK run is labeled by the independent Round check with the row rule (successful when its result was
+correct, at least 1.1x faster and became a row's reference solution); each record names its rule.
+
+**Source run**:
+The run whose result became a task's reference solution: a GEAK run for our rows, a contributor's own session with
+Claude Code or Codex for theirs.
+_Avoid_: origin run, oracle run
 _Avoid_: failed (write unsuccessful), pass (ambiguous with the correctness check), solved, the agent's own "status"
 
 **Scrub check**:

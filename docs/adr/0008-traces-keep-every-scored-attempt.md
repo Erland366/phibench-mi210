@@ -19,7 +19,7 @@ its history rewrites what its own log shows; the harness's log is kept as is, an
 from the raw calls. Raw files are never edited.
 
 A run is stored only once its task exists as a Φ-Bench row (user, 2026-11-26): the row comes first, then the traces
-of the runs on it. GEAK runs whose result is not a row yet wait.
+of the runs on it. For GEAK runs ADR 0010 narrows this to successful ones: unsuccessful GEAK runs are stored now.
 
 ## Consequences
 
