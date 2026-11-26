@@ -46,7 +46,7 @@ package says (sheet format 2, 2026-11-26; `specs/examples/run-sheet-example.json
 ```
 
 From `task_dir` the converter reads the task's `id`, `bench` and `kind` (`task.toml` `[task]`), the anchor
-(`tests/ref_speedup.txt`, which must agree with `task.toml`'s `ref_speedup`) and `hardware.scored_on`
+(the file `task.toml` names in `ref_speedup_source`: `tests/ref_speedup.txt` for our rows, the verifier manifest for the upstream CPU tasks; it must agree with `task.toml`'s `ref_speedup`) and `hardware.scored_on`
 (`[primary_metric] calibrated_on`, with `[environment] gpus` as the count for a GPU), and refuses a sheet entry that
 repeats any of them. `model.name`, the devices and `served_by.server` are fixed choices (`MODEL_NAMES`, `DEVICES` and
 `SERVERS` in `traces.py`); anything else is refused, and details such as which GPUs go in `notes`. `served_on`,
